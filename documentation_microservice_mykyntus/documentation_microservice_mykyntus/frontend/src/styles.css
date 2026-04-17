@@ -1,0 +1,294 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-navy-950: var(--navy-950);
+  --color-navy-900: var(--navy-900);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --color-electric-blue: var(--electric-blue);
+  --color-soft-blue: var(--soft-blue);
+
+  --color-blue-500: var(--blue-500);
+  --color-blue-600: var(--blue-600);
+
+  --color-slate-50: var(--slate-50);
+  --color-slate-200: var(--slate-200);
+  --color-slate-300: var(--slate-300);
+  --color-slate-400: var(--slate-400);
+  --color-slate-500: var(--slate-500);
+  --color-slate-600: var(--slate-600);
+  --color-white: var(--white);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  :root {
+    --navy-950: #f8fafc;
+    --navy-900: #ffffff;
+    --navy-800: #e2e8f0;
+    --navy-700: #f1f5f9;
+    --electric-blue: #1e3a8a;
+    --soft-blue: #3b82f6;
+    --blue-500: #3b82f6;
+    --blue-600: #1e3a8a;
+    --slate-50: #0f172a;
+    --slate-200: #1e293b;
+    --slate-300: #334155;
+    --slate-400: #475569;
+    --slate-500: #64748b;
+    --slate-600: #94a3b8;
+    --white: #0f172a;
+  }
+
+  .dark {
+    --navy-950: #040b16;
+    --navy-900: #0a1526;
+    --navy-800: #112240;
+    --navy-700: #1e3a66;
+    --electric-blue: #00f0ff;
+    --soft-blue: #3b82f6;
+    --blue-500: #3b82f6;
+    --blue-600: #2563eb;
+    --slate-50: #f8fafc;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-400: #94a3b8;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --white: #ffffff;
+  }
+
+  body {
+    @apply bg-navy-950 text-slate-300 antialiased transition-colors duration-300;
+  }
+}
+
+:root h1,
+:root h2,
+:root h3,
+:root h4,
+:root h5,
+:root h6 {
+  color: var(--electric-blue) !important;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #ffffff !important;
+}
+
+:root .bg-blue-600,
+:root .bg-blue-600 .text-white,
+:root .bg-gradient-to-tr .text-white {
+  color: #ffffff !important;
+}
+
+:root nav button svg {
+  color: var(--electric-blue);
+}
+
+:root nav button.text-blue-500 svg {
+  color: var(--soft-blue) !important;
+}
+
+.dark nav button svg {
+  color: inherit;
+}
+
+.glass {
+  @apply bg-navy-900/50 backdrop-blur-md border border-navy-800;
+}
+
+.card-navy {
+  @apply bg-navy-900 border border-navy-800 rounded-xl shadow-sm transition-all duration-300;
+}
+
+.dark .card-navy {
+  @apply shadow-lg;
+}
+
+.dark .card-navy:hover {
+  @apply border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)];
+}
+
+.card-navy:hover {
+  @apply border-soft-blue/30 shadow-md;
+}
+
+/* CKEditor readability in RH document generation */
+.doc-gen-ck .ck-editor__editable_inline {
+  min-height: 28rem;
+  background: #ffffff !important;
+  color: #0f172a !important;
+  line-height: 1.75 !important;
+  font-size: 16px !important;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem !important;
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 0.5rem !important;
+}
+
+.doc-gen-ck .ck-content,
+.doc-gen-ck .ck-content p,
+.doc-gen-ck .ck-content li,
+.doc-gen-ck .ck-content h1,
+.doc-gen-ck .ck-content h2,
+.doc-gen-ck .ck-content h3 {
+  color: #0f172a !important;
+}
+
+.doc-gen-ck .ck-toolbar {
+  border-radius: 0.5rem 0.5rem 0 0 !important;
+}
+
+.rh-document-paper {
+  width: 210mm;
+  min-height: 297mm;
+  max-width: 100%;
+  padding: 20mm;
+  margin: 0.5rem auto;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  font-family: 'Times New Roman', Times, serif;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-navy-800 rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-navy-700;
+}
+
+@keyframes doc-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.doc-animate-in {
+  animation: doc-fade-up 0.35s ease-out both;
+}
+
+.doc-stagger-0 {
+  animation-delay: 0ms;
+}
+.doc-stagger-1 {
+  animation-delay: 100ms;
+}
+.doc-stagger-2 {
+  animation-delay: 200ms;
+}
+.doc-stagger-3 {
+  animation-delay: 300ms;
+}
+
+/* —— Documentation : aperçu PDF & téléchargements (standard entreprise) —— */
+.pdf-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 600px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid rgb(30 58 102 / 0.5);
+}
+
+.empty-preview {
+  display: flex;
+  flex: 1;
+  min-height: 600px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  border-radius: 10px;
+  border: 1px dashed rgb(100 116 139 / 0.45);
+  background: rgb(15 23 42 / 0.35);
+  color: rgb(148 163 184);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.btn-download {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: max-content;
+  background: #2563eb;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.btn-download:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn-download:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.doc-download-dropdown {
+  min-width: 220px;
+  border-radius: 8px;
+  border: 1px solid rgb(30 58 102 / 0.85);
+  background: rgb(10 21 38 / 0.98);
+  box-shadow:
+    0 10px 40px rgb(0 0 0 / 0.35),
+    0 0 0 1px rgb(255 255 255 / 0.04);
+}
+
+.doc-download-dropdown button[role='menuitem'] {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: rgb(226 232 240);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.doc-download-dropdown button[role='menuitem']:hover {
+  background: rgb(30 41 59 / 0.85);
+}

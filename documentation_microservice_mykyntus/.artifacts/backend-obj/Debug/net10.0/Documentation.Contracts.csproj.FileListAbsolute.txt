@@ -1,0 +1,6 @@
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.csproj.AssemblyReference.cache
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.AssemblyInfoInputs.cache
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.AssemblyInfo.cs
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.csproj.CoreCompileInputs.cache
+C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\.artifacts\backend-obj\Debug\net10.0\Documentation.Contracts.sourcelink.json

@@ -1,0 +1,114 @@
+# MYKYNTUS — stack locale (infra + passerelle + documentation).
+# Démarrage : depuis ce dossier → docker compose up -d
+#
+# Ports exposés :
+#   5080  api-gateway (YARP) → documentation-service
+#   5002  documentation-service (direct, identique au profil VS local si vous mappez 5002:8080)
+#   5432  PostgreSQL
+#   6379  Redis
+#   5672  RabbitMQ (AMQP) / 15672 UI
+#   19092 Kafka API depuis la machine hôte (Redpanda, compatible protocole Kafka ; interne docker : kafka:9092)
+#   9000  MinIO S3 / 9001 console
+
+name: mykyntus
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mykyntus-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: mykyntus_documentation
+    ports:
+      - "5432:5432"
+    volumes:
+      - mykyntus_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mykyntus_documentation"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mykyntus-redis
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mykyntus-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # Broker compatible API Kafka (un seul nœud, adapté au dev).
+  kafka:
+    image: redpandadata/redpanda:v25.3.11
+    container_name: mykyntus-kafka
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://kafka:9092,external://localhost:19092
+      - --smp
+      - "1"
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"
+
+  minio:
+    image: minio/minio:latest
+    container_name: mykyntus-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - mykyntus_minio:/data
+
+  documentation-service:
+    build:
+      context: ../documentation_microservice_mykyntus/backend/DocumentationBackend
+      dockerfile: Dockerfile
+    container_name: mykyntus-documentation
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Documentation: "Host=postgres;Port=5432;Database=mykyntus_documentation;Username=postgres;Password=${POSTGRES_PASSWORD:-postgres}"
+      Documentation__DefaultTenantId: "${DOCUMENTATION_DEFAULT_TENANT:-atlas-tech-demo}"
+      # API dans Docker → endpoint réseau compose (pas localhost). Aligné sur le service minio ci-dessus.
+      DocumentTemplates__Minio__Endpoint: "http://minio:9000"
+      DocumentTemplates__Minio__AccessKey: "${MINIO_ROOT_USER:-minio}"
+      DocumentTemplates__Minio__SecretKey: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      DocumentTemplates__Minio__Bucket: "documentation-templates"
+      DocumentTemplates__Minio__Region: "us-east-1"
+    ports:
+      - "5002:8080"
+
+  api-gateway:
+    build:
+      context: ../api-gateway/MyKyntus.ApiGateway
+      dockerfile: Dockerfile
+    container_name: mykyntus-api-gateway
+    depends_on:
+      - documentation-service
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ReverseProxy__Clusters__documentation__Destinations__documentation__Address: "http://documentation-service:8080/"
+    ports:
+      - "5080:8080"
+
+volumes:
+  mykyntus_pgdata:
+  mykyntus_minio:

@@ -1,0 +1,42 @@
+<div class="relative inline-block shrink-0" (click)="$event.stopPropagation()">
+  @if (appearance === 'button' || appearance === 'standard') {
+    <button
+      type="button"
+      class="btn-download"
+      [disabled]="!!busyFormat || !generatedDocumentId?.trim()"
+      (click)="toggleMenu($event)"
+    >
+      @if (busyFormat) {
+        <span>Téléchargement…</span>
+      } @else {
+        <span aria-hidden="true">⬇</span>
+        <span>Télécharger</span>
+        <span class="opacity-90 text-xs" aria-hidden="true">▾</span>
+      }
+    </button>
+  } @else {
+    <button
+      type="button"
+      class="btn-download !px-3 !py-2"
+      title="Télécharger (choix du format)"
+      [disabled]="!!busyFormat || !generatedDocumentId?.trim()"
+      (click)="toggleMenu($event)"
+    >
+      @if (busyFormat) {
+        <span>…</span>
+      } @else {
+        <span aria-hidden="true">⬇</span>
+      }
+    </button>
+  }
+
+  @if (menuOpen && !busyFormat && generatedDocumentId?.trim()) {
+    <div class="doc-download-dropdown absolute right-0 mt-2 py-1 z-[60]" role="menu">
+      <p class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Télécharger en</p>
+      <button type="button" role="menuitem" (click)="downloadAs('pdf', $event)">PDF</button>
+      <button type="button" role="menuitem" (click)="downloadAs('docx', $event)">DOCX</button>
+      <button type="button" role="menuitem" (click)="downloadAs('html', $event)">HTML</button>
+      <button type="button" role="menuitem" (click)="downloadAs('txt', $event)">TXT</button>
+    </div>
+  }
+</div>

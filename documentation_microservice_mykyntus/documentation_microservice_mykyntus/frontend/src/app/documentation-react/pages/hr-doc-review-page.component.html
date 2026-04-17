@@ -1,0 +1,91 @@
+@if (role$ | async; as role) {
+  <div class="space-y-6">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <a routerLink="/dashboard/doc-gen" class="text-xs text-blue-400 hover:underline">← Retour génération</a>
+        <h3 class="mt-2 text-xl font-bold text-white">Édition brouillon RH</h3>
+        <p class="text-sm text-slate-500">
+          Corrigez le texte (champs vides, formulations) puis validez pour produire le PDF officiel.
+        </p>
+      </div>
+    </div>
+
+    @if (!canUse(role)) {
+      <p class="text-sm text-amber-500/90">Cette page est réservée au rôle RH ou Admin.</p>
+    } @else if (loading) {
+      <p class="text-slate-400 text-sm">Chargement du brouillon…</p>
+    } @else if (error) {
+      <p class="text-red-400 text-sm">{{ error }}</p>
+      <button
+        type="button"
+        class="mt-2 rounded-lg border border-navy-600 bg-navy-800 px-3 py-2 text-xs text-slate-200 hover:bg-navy-700"
+        (click)="reload()"
+      >
+        Réessayer
+      </button>
+    } @else {
+      <div class="card-navy p-6 space-y-4">
+        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <span class="font-mono text-slate-300">{{ generatedDocumentId }}</span>
+          <span class="rounded bg-navy-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">{{ status }}</span>
+        </div>
+
+        @if (missingVariables.length > 0) {
+          <div class="rounded-lg border border-red-900/60 bg-red-950/25 px-3 py-2 text-sm text-red-200">
+            <span class="font-semibold">Variables à compléter ou vérifier :</span>
+            <span class="ml-1 font-mono text-red-100">{{ missingVariables.join(', ') }}</span>
+          </div>
+        }
+
+        <p class="text-xs leading-relaxed text-slate-500">
+          Les segments
+          <span class="font-mono text-red-400">(X)</span>
+          signalent un champ obligatoire non renseigné — remplacez-les par la valeur réelle avant la finalisation.
+        </p>
+
+        <div class="space-y-1">
+          <label class="text-xs font-medium text-slate-400" for="rh-draft-body">Contenu du document</label>
+          <textarea
+            id="rh-draft-body"
+            name="rhDraftBody"
+            class="min-h-[28rem] w-full rounded-lg border border-navy-700 bg-navy-900/60 p-3 font-mono text-sm text-slate-100 outline-none focus:border-blue-500"
+            [(ngModel)]="contentEditable"
+            spellcheck="true"
+          ></textarea>
+        </div>
+
+        <details class="rounded-lg border border-navy-800 bg-navy-900/30 px-3 py-2 text-xs text-slate-500">
+          <summary class="cursor-pointer text-slate-400">Texte généré automatiquement (référence)</summary>
+          <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-slate-500">{{ contentGenerated }}</pre>
+        </details>
+
+        <div class="flex flex-wrap gap-3">
+          <button
+            type="button"
+            class="rounded-lg bg-navy-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
+            [disabled]="busySave"
+            (click)="save()"
+          >
+            @if (busySave) {
+              Enregistrement…
+            } @else {
+              Enregistrer
+            }
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50"
+            [disabled]="busyFinalize"
+            (click)="finalizePdf()"
+          >
+            @if (busyFinalize) {
+              Finalisation…
+            } @else {
+              Valider et générer le PDF
+            }
+          </button>
+        </div>
+      </div>
+    }
+  </div>
+}
