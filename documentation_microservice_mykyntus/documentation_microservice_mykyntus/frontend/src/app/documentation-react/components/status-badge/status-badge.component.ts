@@ -7,7 +7,7 @@ import { Component, Input } from '@angular/core';
   imports: [CommonModule],
   template: `
     <span
-      class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold border"
+      class="inline-flex items-center whitespace-nowrap px-2.5 py-0.5 rounded-full text-[11px] font-semibold border"
       [ngClass]="styles[status] || fallback"
     >
       {{ statusLabels[status] || status }}

@@ -35,6 +35,8 @@ export interface DocumentRequestDto {
   documentTemplateId?: string | null;
   documentTemplateName?: string | null;
   reason: string | null;
+  /** Commentaires complémentaires saisis par le pilote (facultatif). */
+  complementaryComments?: string | null;
   isCustomType: boolean;
   /** Actions autorisées pour l’acteur courant — fourni par le backend. */
   allowedActions: string[];

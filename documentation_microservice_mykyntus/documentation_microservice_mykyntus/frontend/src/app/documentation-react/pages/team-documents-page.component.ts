@@ -7,7 +7,13 @@ import type { DocumentationRole } from '../interfaces/documentation-role';
 import { switchMapOnDocumentationContext } from '../lib/documentation-context-refresh';
 import type { DocumentationDocument, DocumentationRequest } from '../interfaces/documentation-entities';
 import { filterByEmployeeScope } from '../lib/documentation-filters';
-import { mapDocumentRequestDto, mapRequestToGeneratedDocument } from '../lib/documentation-dto-mappers';
+import {
+  generatedDocumentExportBaseName,
+  mapDocumentRequestDto,
+  mapRequestToGeneratedDocument,
+} from '../lib/documentation-dto-mappers';
+import { GeneratedDocumentFormatMenuComponent } from '../components/generated-document-format-menu/generated-document-format-menu.component';
+import { GeneratedDocumentPreviewModalComponent } from '../components/generated-document-preview-modal/generated-document-preview-modal.component';
 import type { HierarchyDrillSelection } from '../lib/documentation-org-hierarchy';
 import { DocumentationApiService } from '../services/documentation-api.service';
 import { DocumentationHierarchyDrillService } from '../services/documentation-hierarchy-drill.service';
@@ -19,7 +25,14 @@ import { StatusBadgeComponent } from '../components/status-badge/status-badge.co
 @Component({
   standalone: true,
   selector: 'app-team-documents-page',
-  imports: [CommonModule, DocIconComponent, StatusBadgeComponent, DocDrillBarComponent],
+  imports: [
+    CommonModule,
+    DocIconComponent,
+    StatusBadgeComponent,
+    DocDrillBarComponent,
+    GeneratedDocumentFormatMenuComponent,
+    GeneratedDocumentPreviewModalComponent,
+  ],
   templateUrl: './team-documents-page.component.html',
 })
 export class TeamDocumentsPageComponent implements OnInit, OnDestroy {
@@ -30,6 +43,11 @@ export class TeamDocumentsPageComponent implements OnInit, OnDestroy {
   private all: DocumentationRequest[] = [];
   loading = true;
   error: string | null = null;
+  previewOpen = false;
+  previewGeneratedId: string | null = null;
+  previewTitle = '';
+  previewSubtitle: string | null = null;
+  previewExportFileNameBase: string | null = null;
 
   constructor(
     private readonly nav: DocumentationNavigationService,
@@ -78,5 +96,32 @@ export class TeamDocumentsPageComponent implements OnInit, OnDestroy {
       .split(' ')
       .map((n) => n[0])
       .join('');
+  }
+
+  canOpenOrDownload(doc: DocumentationDocument): boolean {
+    return !!(doc.generatedDocumentId?.trim() || doc.status === 'Generated');
+  }
+
+  openPreview(doc: DocumentationDocument): void {
+    const id = doc.generatedDocumentId?.trim();
+    if (!id) return;
+    this.previewGeneratedId = id;
+    this.previewTitle = doc.name?.trim() || 'Document généré';
+    this.previewSubtitle = doc.type;
+    this.previewExportFileNameBase =
+      doc.exportFileBase?.trim() ||
+      generatedDocumentExportBaseName({
+        employeeName: doc.employeeName ?? '',
+        type: doc.type,
+        generatedAt: doc.status === 'Generated' ? doc.dateCreated : null,
+        requestDate: doc.dateCreated,
+      });
+    this.previewOpen = true;
+  }
+
+  closePreview(): void {
+    this.previewOpen = false;
+    this.previewGeneratedId = null;
+    this.previewExportFileNameBase = null;
   }
 }

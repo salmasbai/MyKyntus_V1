@@ -228,6 +228,9 @@ public class DocumentationDbContext : DbContext
             e.Property(x => x.ContentGenerated).HasColumnType("text");
             e.Property(x => x.ContentFinal).HasColumnType("text");
             e.Property(x => x.RhMissingVariablesJson).HasColumnName("rh_missing_variables").HasColumnType("text");
+            e.Property(x => x.WorkflowVariablesSnapshotJson)
+                .HasColumnName("workflow_variables_snapshot")
+                .HasColumnType("jsonb");
             e.HasOne(x => x.DocumentRequest)
                 .WithMany(r => r.GeneratedDocuments)
                 .HasForeignKey(x => x.DocumentRequestId)

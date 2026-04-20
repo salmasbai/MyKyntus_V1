@@ -15,7 +15,8 @@
         <div class="flex items-center gap-2 shrink-0">
           <app-generated-document-format-menu
             [generatedDocumentId]="generatedDocumentId"
-            appearance="button"
+            [fileNameBase]="exportFileNameBase"
+            appearance="standard"
           />
           <button
             type="button"

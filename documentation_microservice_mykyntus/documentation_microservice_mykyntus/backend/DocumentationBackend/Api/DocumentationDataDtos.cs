@@ -39,7 +39,9 @@ public sealed record DocumentRequestResponse(
     string? DocumentUrl,
     /// <summary>Modèle choisi par le pilote (demande liée à un modèle RH).</summary>
     string? DocumentTemplateId = null,
-    string? DocumentTemplateName = null);
+    string? DocumentTemplateName = null,
+    /// <summary>Commentaires complémentaires saisis par le pilote à la demande.</summary>
+    string? ComplementaryComments = null);
 
 public sealed record AuditLogResponse(
     string Id,

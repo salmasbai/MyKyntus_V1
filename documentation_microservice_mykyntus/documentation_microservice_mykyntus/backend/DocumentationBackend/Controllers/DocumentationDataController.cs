@@ -40,34 +40,9 @@ public class DocumentationDataController(
     AiDirectDocumentFillOrchestrator aiDirectOrchestrator,
     IOptions<DocumentWorkflowOptions> documentWorkflowOptions,
     IOptions<AiTemplateOptions> aiTemplateOptions,
+    IRibValidationService ribValidation,
     ILogger<DocumentationDataController> logger) : ControllerBase
 {
-    private const string DebugLogPath = @"C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\debug-4e1d33.log";
-
-    private static void DebugLog(string hypothesisId, string location, string message, object data)
-    {
-        try
-        {
-            #region agent log
-            var line = JsonSerializer.Serialize(new
-            {
-                sessionId = "4e1d33",
-                runId = "initial",
-                hypothesisId,
-                location,
-                message,
-                data,
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            });
-            System.IO.File.AppendAllText(DebugLogPath, line + Environment.NewLine);
-            #endregion
-        }
-        catch
-        {
-            // Ignore debug logging failures.
-        }
-    }
-
     private const string PostgresUniqueViolationSqlState = "23505";
     private const int MaxTemplateContentLength = 100_000;
     private const int MaxTemplateVariables = 100;
@@ -1397,30 +1372,20 @@ public class DocumentationDataController(
         [FromBody] CreateTemplateVersionRequest body,
         CancellationToken ct)
     {
-        #region agent log
-        DebugLog("H6", "DocumentationDataController.CreateTemplateVersion:entry", "create version request", new
-        {
-            templateId = id,
-            status = body.Status,
-            structuredContentLength = body.StructuredContent?.Length ?? 0,
-            variablesCount = body.Variables?.Count ?? 0,
-            originalAssetUriPresent = !string.IsNullOrWhiteSpace(body.OriginalAssetUri),
-            userIdPresent = userContext.UserId.HasValue,
-            tenantId = tenantAccessor.ResolvedTenantId,
-        });
-        #endregion
+        logger.LogDebug(
+            "CreateTemplateVersion:entry templateId={TemplateId} status={Status} contentLen={Len} vars={VarCount}",
+            id,
+            body.Status,
+            body.StructuredContent?.Length ?? 0,
+            body.Variables?.Count ?? 0);
         var template = await db.DocumentTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
         if (template is null)
             return NotFound();
-        #region agent log
-        DebugLog("H6", "DocumentationDataController.CreateTemplateVersion:template", "template loaded", new
-        {
-            templateId = template.Id,
-            kind = template.Kind.ToString(),
-            code = template.Code,
-            currentVersionId = template.CurrentVersionId,
-        });
-        #endregion
+        logger.LogDebug(
+            "CreateTemplateVersion:template loaded templateId={TemplateId} kind={Kind} code={Code}",
+            template.Id,
+            template.Kind,
+            template.Code);
         if (string.IsNullOrWhiteSpace(body.StructuredContent))
             return BadRequest(new { message = "structuredContent est obligatoire." });
         if (body.StructuredContent.Length > MaxTemplateContentLength)
@@ -1430,7 +1395,7 @@ public class DocumentationDataController(
         IReadOnlyList<TemplateVariableInput> vars;
         if (template.Kind == DocumentTemplateKind.Static)
             vars = Array.Empty<TemplateVariableInput>();
-        else if (body.Variables.Count == 0)
+        else if (body.Variables is null || body.Variables.Count == 0)
         {
             vars = templateEngine.DetectVariables(body.StructuredContent).Select(v => new TemplateVariableInput
             {
@@ -1456,30 +1421,22 @@ public class DocumentationDataController(
             template.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
 
-            #region agent log
-            DebugLog("H6", "DocumentationDataController.CreateTemplateVersion:success", "create version success", new
-            {
-                templateId = template.Id,
-                versionId = version.Id,
-                versionNumber = version.VersionNumber,
-                status,
-            });
-            #endregion
+            logger.LogInformation(
+                "CreateTemplateVersion:success templateId={TemplateId} versionId={VersionId} versionNumber={VersionNumber} status={Status}",
+                template.Id,
+                version.Id,
+                version.VersionNumber,
+                status);
 
             return Ok(MapVersionResponse(version, vars.Select((v, i) => ToVariableResponse(v, i)).ToList()));
         }
         catch (Exception ex)
         {
-            #region agent log
-            DebugLog("H6", "DocumentationDataController.CreateTemplateVersion:exception", "create version exception", new
-            {
-                templateId = template.Id,
-                exceptionType = ex.GetType().FullName,
-                postgresSqlState = FindPostgresException(ex)?.SqlState,
-                exceptionMessage = ex.Message,
-                innerMessage = ex.InnerException?.Message,
-            });
-            #endregion
+            logger.LogError(
+                ex,
+                "CreateTemplateVersion:exception templateId={TemplateId} sqlState={SqlState}",
+                template.Id,
+                FindPostgresException(ex)?.SqlState);
             throw;
         }
     }
@@ -1631,6 +1588,17 @@ public class DocumentationDataController(
         var prep = await PrepareDocumentWorkflowAsync(wf, ct);
         if (prep.FailedResult is { } fail)
             return fail;
+        if (prep.Template.Kind != DocumentTemplateKind.Static &&
+            (prep.MissingRequired.Count > 0 || prep.InvalidFormat.Count > 0))
+        {
+            return BadRequest(new
+            {
+                message = "Données manquantes ou invalides : génération bloquée tant que les champs ne sont pas corrigés.",
+                missingVariables = prep.MissingRequired,
+                invalidVariables = prep.InvalidFormat,
+            });
+        }
+
         return await CompleteDocumentGenerationAsync(wf, prep, ct);
     }
 
@@ -1701,6 +1669,24 @@ public class DocumentationDataController(
                 prep.Merged,
                 prep.MissingRequired,
                 wfOpts.MissingFieldPlaceholder);
+        }
+
+        // Aperçu fidèle au fichier Word d’origine (substitutions OpenXML) — évite QuestPDF et reflète mise en page / styles du modèle.
+        var originalAssetUri = prep.Version.OriginalAssetUri;
+        var originalDocx = await templateBlobStorage.TryReadObjectAsync(originalAssetUri, ct);
+
+        if (DocxTemplatePayloadInspector.IsWordProcessingOpenXml(originalDocx) && originalDocx is { Content.Length: > 0 })
+        {
+            var docxBytes = originalDocxTemplateRender.Render(originalDocx.Content, mergedForPreview);
+            var safeCode = string.IsNullOrWhiteSpace(prep.Template.Code) ? "DOC" : prep.Template.Code.Trim();
+            var docxFileName = $"PREVIEW_{safeCode}_{DateTimeOffset.UtcNow:yyyyMMddHHmmss}.docx";
+            Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            Response.Headers.Pragma = "no-cache";
+            Response.Headers.Append("X-Preview-Source", "original-docx");
+            return File(
+                docxBytes,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                fileDownloadName: docxFileName);
         }
 
         var rendered = templateEngine.RenderContent(prep.Version.StructuredContent, mergedForPreview);
@@ -1937,7 +1923,7 @@ public class DocumentationDataController(
         {
             return Conflict(new
             {
-                message = "Brouillon RH : aucun PDF tant que le texte n’est pas validé (finalisation).",
+                message = "Brouillon RH : aucun fichier final tant que la validation RH n’est pas terminée.",
                 needsRhEditorReview = true,
                 generatedDocumentId = gen.Id.ToString("D"),
             });
@@ -2015,7 +2001,11 @@ public class DocumentationDataController(
         return NoContent();
     }
 
-    /// <summary>Produit le PDF officiel à partir du texte validé par le RH (<c>content_final</c>).</summary>
+    /// <summary>
+    /// Finalise le brouillon RH : valide <c>content_final</c> (marqueurs) puis enregistre le document officiel.
+    /// Si le modèle a un fichier Word d’origine, le binaire officiel est le <b>DOCX rempli</b> (même styles que le template) ;
+    /// sinon un <b>PDF</b> est produit via QuestPDF à partir du texte validé.
+    /// </summary>
     [HttpPost("generated-documents/{id:guid}/finalize-rh")]
     public async Task<ActionResult<DocumentTemplateGenerateResponse>> FinalizeRhGeneratedDocument(Guid id, CancellationToken ct)
     {
@@ -2040,7 +2030,7 @@ public class DocumentationDataController(
 
         var rendered = gen.ContentFinal?.Trim();
         if (string.IsNullOrEmpty(rendered))
-            return BadRequest(new { message = "Contenu vide : complétez le texte avant de générer le PDF." });
+            return BadRequest(new { message = "Contenu vide : complétez le texte avant de valider le document." });
         var unresolvedMarkers = DetectUnresolvedLegacyMarkers(rendered);
         if (unresolvedMarkers.Count > 0)
         {
@@ -2061,31 +2051,68 @@ public class DocumentationDataController(
             ?? template.Code;
 
         var now = DateTimeOffset.UtcNow;
-        var (fileName, pdfBytes) = pdfExport.BuildPdf(
-            template.Code,
-            tenantAccessor.ResolvedTenantId,
-            rendered,
-            titleFallback);
-
-        string storageUri;
-        if (templateBlobStorage.IsConfigured)
+        var exportContext = await TryBuildStructuredExportContextAsync(gen, ct);
+        var originalAssetUri = exportContext?.Version?.OriginalAssetUri;
+        var originalDocx = await templateBlobStorage.TryReadObjectAsync(originalAssetUri, ct);
+        if (exportContext is not null &&
+            DocxTemplatePayloadInspector.IsWordProcessingOpenXml(originalDocx) &&
+            originalDocx is { Content.Length: > 0 })
         {
-            await using var stream = new MemoryStream(pdfBytes);
-            var key = $"{tenantAccessor.ResolvedTenantId.TrimEnd('/')}/generated/{gen.Id:N}/{fileName}";
-            storageUri = await templateBlobStorage.PutTemplateObjectAsync(key, stream, "application/pdf", ct);
+            var docxBytes = originalDocxTemplateRender.Render(originalDocx.Content, exportContext.Value.Merged);
+            var stem = await BuildExportFileStemAsync(gen, ct);
+            var docxFileName = $"{stem}.docx";
+            string storageUri;
+            if (templateBlobStorage.IsConfigured)
+            {
+                await using var stream = new MemoryStream(docxBytes);
+                var key = $"{tenantAccessor.ResolvedTenantId.TrimEnd('/')}/generated/{gen.Id:N}/{docxFileName}";
+                storageUri = await templateBlobStorage.PutTemplateObjectAsync(
+                    key,
+                    stream,
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ct);
+            }
+            else
+            {
+                storageUri = $"inline://generated/{gen.Id:N}/{Uri.EscapeDataString(docxFileName)}";
+            }
+
+            gen.FileName = docxFileName;
+            gen.StorageUri = storageUri;
+            gen.PdfContent = templateBlobStorage.IsConfigured ? null : docxBytes;
+            gen.MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            gen.FileSizeBytes = docxBytes.LongLength;
+            gen.Status = GeneratedDocumentStatus.Generated;
+            gen.UpdatedAt = now;
         }
         else
         {
-            storageUri = $"inline://generated/{gen.Id:N}/{Uri.EscapeDataString(fileName)}";
-        }
+            var (fileName, pdfBytes) = pdfExport.BuildPdf(
+                template.Code,
+                tenantAccessor.ResolvedTenantId,
+                rendered,
+                titleFallback);
 
-        gen.FileName = fileName;
-        gen.StorageUri = storageUri;
-        gen.PdfContent = templateBlobStorage.IsConfigured ? null : pdfBytes;
-        gen.MimeType = "application/pdf";
-        gen.FileSizeBytes = pdfBytes.LongLength;
-        gen.Status = GeneratedDocumentStatus.Generated;
-        gen.UpdatedAt = now;
+            string storageUri;
+            if (templateBlobStorage.IsConfigured)
+            {
+                await using var stream = new MemoryStream(pdfBytes);
+                var key = $"{tenantAccessor.ResolvedTenantId.TrimEnd('/')}/generated/{gen.Id:N}/{fileName}";
+                storageUri = await templateBlobStorage.PutTemplateObjectAsync(key, stream, "application/pdf", ct);
+            }
+            else
+            {
+                storageUri = $"inline://generated/{gen.Id:N}/{Uri.EscapeDataString(fileName)}";
+            }
+
+            gen.FileName = fileName;
+            gen.StorageUri = storageUri;
+            gen.PdfContent = templateBlobStorage.IsConfigured ? null : pdfBytes;
+            gen.MimeType = "application/pdf";
+            gen.FileSizeBytes = pdfBytes.LongLength;
+            gen.Status = GeneratedDocumentStatus.Generated;
+            gen.UpdatedAt = now;
+        }
 
         if (gen.DocumentRequest is { } linkedRequest)
         {
@@ -2094,7 +2121,7 @@ public class DocumentationDataController(
             var auditDetails = JsonSerializer.Serialize(new
             {
                 generatedDocumentId = gen.Id.ToString("D"),
-                fileName,
+                fileName = gen.FileName,
                 templateCode = template.Code,
                 templateId = template.Id.ToString("D"),
                 rhFinalized = true,
@@ -2115,10 +2142,13 @@ public class DocumentationDataController(
         }
 
         await db.SaveChangesAsync(ct);
-        return Ok(new DocumentTemplateGenerateResponse(gen.Id.ToString("D"), fileName, storageUri, gen.Status.ToString()));
+        return Ok(new DocumentTemplateGenerateResponse(gen.Id.ToString("D"), gen.FileName, gen.StorageUri, gen.Status.ToString()));
     }
 
-    /// <summary>Export multi-format : PDF = binaire stocké ; docx, txt, html = génération à la demande (pas de second fichier stocké).</summary>
+    /// <summary>
+    /// Export multi-format : pour un document finalisé sur modèle Word, le binaire stocké est le DOCX ; l’export PDF n’est
+    /// pas disponible tant qu’aucun convertisseur DOCX→PDF n’est branché (<see cref="ExportGeneratedDocumentCoreAsync"/>).
+    /// </summary>
     [HttpGet("generated-documents/{id:guid}/export")]
     public async Task<IActionResult> ExportGeneratedDocument(Guid id, [FromQuery] string format = "pdf", CancellationToken ct = default)
     {
@@ -2372,6 +2402,53 @@ public class DocumentationDataController(
         return bytes;
     }
 
+    /// <summary>
+    /// Dictionnaire fusionné pour exports / DOCX : si un instantané a été enregistré à la création du brouillon,
+    /// il est utilisé tel quel (alignement strict avec l’aperçu) ; sinon fusion annuaire + champs demande uniquement.
+    /// </summary>
+    private async Task<Dictionary<string, string>> BuildExportMergedDictionaryAsync(
+        GeneratedDocument gen,
+        DocumentTemplateVersion version,
+        string titleFallback,
+        CancellationToken ct)
+    {
+        var fromSnap = TryParseWorkflowVariablesSnapshot(gen.WorkflowVariablesSnapshotJson);
+        if (fromSnap is not null)
+            return fromSnap;
+
+        Guid? beneficiaryId = null;
+        if (gen.DocumentRequestId is { } drId)
+        {
+            var reqRow = await db.DocumentRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == drId, ct);
+            beneficiaryId = reqRow?.BeneficiaryUserId ?? reqRow?.RequesterUserId;
+        }
+
+        var merged = await MergeTemplateVariablesAsync(beneficiaryId, gen.DocumentRequestId, null, ct);
+        var d = gen.CreatedAt;
+        merged["date"] = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        merged["date_fr"] = d.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("fr-FR"));
+        EnsureFrenchDateAlias(merged);
+        await ApplyAiVariableRefinementAsync(merged, version.Id, titleFallback, ct).ConfigureAwait(false);
+        return merged;
+    }
+
+    private static Dictionary<string, string>? TryParseWorkflowVariablesSnapshot(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+        try
+        {
+            var d = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (d is null || d.Count == 0)
+                return null;
+            return new Dictionary<string, string>(d, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     private async Task<(string Rendered, string TitleFallback)?> TryRenderStructuredExportAsync(GeneratedDocument gen, CancellationToken ct)
     {
         var version = gen.TemplateVersion;
@@ -2394,19 +2471,7 @@ public class DocumentationDataController(
         if (version is null || string.IsNullOrWhiteSpace(version.StructuredContent))
             return null;
 
-        Guid? beneficiaryId = null;
-        if (gen.DocumentRequestId is { } drId)
-        {
-            var reqRow = await db.DocumentRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == drId, ct);
-            beneficiaryId = reqRow?.BeneficiaryUserId ?? reqRow?.RequesterUserId;
-        }
-
-        var merged = await MergeTemplateVariablesAsync(beneficiaryId, gen.DocumentRequestId, null, ct);
-        var d = gen.CreatedAt;
-        merged["date"] = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        merged["date_fr"] = d.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("fr-FR"));
-        EnsureFrenchDateAlias(merged);
-        await ApplyAiVariableRefinementAsync(merged, version.Id, titleFallback, ct).ConfigureAwait(false);
+        var merged = await BuildExportMergedDictionaryAsync(gen, version, titleFallback, ct);
         var rendered = templateEngine.RenderContent(version.StructuredContent, merged);
         return (rendered, titleFallback);
     }
@@ -2431,19 +2496,7 @@ public class DocumentationDataController(
         if (version is null)
             return null;
 
-        Guid? beneficiaryId = null;
-        if (gen.DocumentRequestId is { } drId)
-        {
-            var reqRow = await db.DocumentRequests.AsNoTracking().FirstOrDefaultAsync(r => r.Id == drId, ct);
-            beneficiaryId = reqRow?.BeneficiaryUserId ?? reqRow?.RequesterUserId;
-        }
-
-        var merged = await MergeTemplateVariablesAsync(beneficiaryId, gen.DocumentRequestId, null, ct);
-        var d = gen.CreatedAt;
-        merged["date"] = d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        merged["date_fr"] = d.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("fr-FR"));
-        EnsureFrenchDateAlias(merged);
-        await ApplyAiVariableRefinementAsync(merged, version.Id, titleFallback, ct).ConfigureAwait(false);
+        var merged = await BuildExportMergedDictionaryAsync(gen, version, titleFallback, ct);
         return (merged, version, titleFallback);
     }
 
@@ -2540,6 +2593,17 @@ public class DocumentationDataController(
 
         if (format == "pdf")
         {
+            var officialMime = (gen.MimeType ?? string.Empty).ToLowerInvariant();
+            if (officialMime.Contains("wordprocessingml", StringComparison.OrdinalIgnoreCase))
+            {
+                return UnprocessableEntity(new
+                {
+                    message =
+                        "Le document officiel est le fichier Word (mise en page identique au modèle uploadé). Utilisez l’export DOCX. Une conversion PDF fidèle au modèle nécessite un moteur serveur (ex. LibreOffice) non branché ici.",
+                    officialFormat = "docx",
+                });
+            }
+
             var pdf = await TryGetStoredPdfBytesAsync(gen, ct);
             if (pdf is null)
                 return NotFound(new { message = "Fichier PDF introuvable (MinIO ou base)." });
@@ -2562,15 +2626,25 @@ public class DocumentationDataController(
             switch (format)
             {
                 case "docx":
+                {
+                    var genMime = (gen.MimeType ?? string.Empty).ToLowerInvariant();
+                    if (gen.Status == GeneratedDocumentStatus.Generated &&
+                        genMime.Contains("wordprocessingml", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var officialBytes = await TryGetStoredPdfBytesAsync(gen, ct);
+                        if (officialBytes is { Length: > 0 })
+                        {
+                            bytes = officialBytes;
+                            contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+                            ext = ".docx";
+                            break;
+                        }
+                    }
+
                     var originalAssetUri = exportContext.Value.Version?.OriginalAssetUri;
                     var originalDocx = await templateBlobStorage.TryReadObjectAsync(originalAssetUri, ct);
-                    var originalName = originalDocx?.FileName ?? "";
-                    var isOriginalWordTemplate =
-                        !string.IsNullOrWhiteSpace(originalAssetUri) &&
-                        (originalName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase)
-                         || originalAssetUri.EndsWith(".docx", StringComparison.OrdinalIgnoreCase));
 
-                    if (isOriginalWordTemplate && originalDocx is not null && originalDocx.Content.Length > 0 && string.IsNullOrWhiteSpace(gen.ContentFinal))
+                    if (DocxTemplatePayloadInspector.IsWordProcessingOpenXml(originalDocx) && originalDocx is not null && originalDocx.Content.Length > 0)
                     {
                         bytes = originalDocxTemplateRender.Render(originalDocx.Content, exportContext.Value.Merged);
                         contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -2582,7 +2656,9 @@ public class DocumentationDataController(
                         contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
                         ext = ".docx";
                     }
+
                     break;
+                }
                 case "txt":
                     bytes = StructuredDocumentHtmlTxtExporter.BuildTxtUtf8(parts, watermark);
                     contentType = "text/plain; charset=utf-8";
@@ -2834,6 +2910,21 @@ public class DocumentationDataController(
         var linkedRequest = prep.LinkedRequest;
         var wfOpts = documentWorkflowOptions.Value;
 
+        var structural = templateEngine.ListStructuralResidualsAfterRender(version.StructuredContent, merged);
+        if (structural.Count > 0)
+        {
+            logger.LogWarning(
+                "Génération bloquée : marqueurs résiduels sur le modèle {TemplateCode} : {Residuals}",
+                template.Code,
+                string.Join(", ", structural));
+            return BadRequest(new
+            {
+                message =
+                    "Le document contient encore des marqueurs non remplis ((X), {{variable}}, masques date, tirets, etc.). Complétez les données ou le modèle avant de générer.",
+                structuralResiduals = structural,
+            });
+        }
+
         var contentGeneratedStrict = templateEngine.RenderContent(version.StructuredContent, merged);
 
         var missingPh = string.IsNullOrWhiteSpace(wfOpts.MissingFieldPlaceholder)
@@ -2880,6 +2971,8 @@ public class DocumentationDataController(
             RhMissingVariablesJson = prep.MissingRequired.Count > 0
                 ? JsonSerializer.Serialize(prep.MissingRequired)
                 : null,
+            // Même fusion que l’aperçu / le formulaire (incl. champs RH non persistés en base).
+            WorkflowVariablesSnapshotJson = JsonSerializer.Serialize(prep.Merged),
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -3261,7 +3354,7 @@ public class DocumentationDataController(
         return markers;
     }
 
-    private static string? InferStrictValidationRuleByName(string variableName)
+    private string? InferStrictValidationRuleByName(string variableName)
     {
         var k = (variableName ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrEmpty(k))
@@ -3270,7 +3363,7 @@ public class DocumentationDataController(
         if (k.Contains("cin", StringComparison.Ordinal))
             return @"^[A-Za-z]{1,2}[0-9]{6}$";
         if (k.Contains("rib", StringComparison.Ordinal) || k.Contains("compte_bancaire", StringComparison.Ordinal))
-            return @"^[0-9]{14}$";
+            return ribValidation.DigitsOnlyValidationPattern;
         if (k.Contains("telephone", StringComparison.Ordinal) || k.Contains("phone", StringComparison.Ordinal) || k == "tel")
             return @"^\+?[0-9]{10,15}$";
         if (k.Contains("email", StringComparison.Ordinal) || k.Contains("courriel", StringComparison.Ordinal))

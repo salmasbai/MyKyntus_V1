@@ -26,6 +26,14 @@ public interface ITemplateEngineService
     IReadOnlyList<DetectedTemplateVariable> MergeWithAiDetected(
         IReadOnlyList<DetectedTemplateVariable> regexVars,
         IReadOnlyList<AiDetectedVariable> aiVars);
+
+    /// <summary>
+    /// Après rendu strict, liste les marqueurs encore présents ((X), {{var}}, masques date, etc.).
+    /// Utilisé pour bloquer la génération tant que le document n’est pas entièrement résolu.
+    /// </summary>
+    IReadOnlyList<string> ListStructuralResidualsAfterRender(
+        string structuredContent,
+        IReadOnlyDictionary<string, string> values);
 }
 
 public sealed record DetectedTemplateVariable(
@@ -41,9 +49,10 @@ public sealed record VariableValidationResult(
     IReadOnlyList<string> MissingRequired,
     IReadOnlyList<string> InvalidFormat);
 
-public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationService placeholderNormalization) : ITemplateEngineService
+public sealed class TemplateEngineService(
+    ITemplatePlaceholderNormalizationService placeholderNormalization,
+    IRibValidationService ribValidation) : ITemplateEngineService
 {
-    private static readonly Regex PlaceholderRegex = new(@"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", RegexOptions.Compiled);
     private static readonly Regex HumanPlaceholderRegex = new(@"\(([^\(\)\r\n]{1,120})\)", RegexOptions.Compiled);
 
     private static readonly Regex LegacyDateMaskRegex = new(@"XX/XX/20\d{2}", RegexOptions.Compiled);
@@ -62,10 +71,6 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
 
     private static readonly Regex CinValueRegex = new(
         @"^[A-Za-z]{1,2}[0-9]{4,8}$|^[0-9A-Za-z]{4,20}$",
-        RegexOptions.Compiled);
-
-    private static readonly Regex RibValueRegex = new(
-        @"^[A-Z0-9]{10,34}$|^[0-9]{16,30}$",
         RegexOptions.Compiled);
 
     private static readonly Regex MultiSpaceRegex = new(@"[ \t]{2,}", RegexOptions.Compiled);
@@ -87,7 +92,7 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
         return names.Select(BuildDetectedVariable).ToList();
     }
 
-    private static DetectedTemplateVariable BuildDetectedVariable(string name)
+    private DetectedTemplateVariable BuildDetectedVariable(string name)
     {
         var lower = name.ToLowerInvariant();
         var type = InferVariableType(lower);
@@ -185,18 +190,24 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
         return false;
     }
 
-    private static string? InferValidationRule(string lower, string type)
+    private string? InferValidationRule(string lower, string type)
     {
         if (lower.Contains("cin", StringComparison.Ordinal))
             return @"^[A-Za-z0-9]{4,20}$";
         if (ContainsAny(lower, "rib", "iban", "compte"))
-            return @"^[A-Z]{2}[0-9A-Z]{10,30}$";
+            return ribValidation.DigitsOnlyValidationPattern;
         if (type == "email")
             return @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
         if (type == "phone")
             return @"^\+?[0-9\s\-]{8,20}$";
         return null;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> ListStructuralResidualsAfterRender(
+        string structuredContent,
+        IReadOnlyDictionary<string, string> values) =>
+        AiDirectFilledDocumentValidator.FindRemainingPlaceholders(RenderContent(structuredContent, values));
 
     public VariableValidationResult ValidateValues(
         IReadOnlyList<DetectedTemplateVariable> variables,
@@ -215,7 +226,17 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
                 continue;
             }
 
-            if (string.IsNullOrWhiteSpace(val) || string.IsNullOrWhiteSpace(v.ValidationRule))
+            if (string.IsNullOrWhiteSpace(val))
+                continue;
+
+            if (IRibValidationService.IsRibLikeVariableName(v.Name))
+            {
+                if (!ribValidation.IsValidRibDigits(val))
+                    invalid.Add(v.Name);
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(v.ValidationRule))
                 continue;
 
             try
@@ -304,17 +325,55 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
                 return resolved!;
             if (TryGetValueIgnoreCase(values, normalized, out resolved) && !string.IsNullOrWhiteSpace(resolved))
                 return resolved!;
-            return string.Empty;
+            return match.Value;
         });
 
-        // Placeholders sans valeur fournie : chaîne vide (jamais de texte inventé).
-        rendered = PlaceholderRegex.Replace(rendered, string.Empty);
-        rendered = HumanPlaceholderRegex.Replace(rendered, string.Empty);
-
-        var withLegacy = ApplyLegacyWordPlaceholders(rendered, values);
-        var withHonorific = NormalizeHonorificText(withLegacy, values);
+        rendered = ApplyNamedLiteralPlaceholdersWhenFilled(rendered, values);
+        var withHonorific = NormalizeHonorificText(rendered, values);
         var withBankAndCin = NormalizeCinAndRibText(withHonorific, values);
         return NormalizeProfessionalFormatting(withBankAndCin);
+    }
+
+    /// <summary>
+    /// Remplace uniquement les marqueurs nommés classiques lorsqu’une valeur existe (pas de substitution silencieuse vide).
+    /// Les <c>(X)</c> multiples partagent la clé <c>marqueur_x</c> / <c>placeholder_generique</c> si renseignée.
+    /// </summary>
+    private static string ApplyNamedLiteralPlaceholdersWhenFilled(string text, IReadOnlyDictionary<string, string> values)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        var nom = FirstNonEmpty(values, "nom_complet", "nom", "prenom_nom");
+        if (!string.IsNullOrWhiteSpace(nom))
+            text = text.Replace("(NOM)", nom.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        var prenom = FirstNonEmpty(values, "prenom");
+        if (!string.IsNullOrWhiteSpace(prenom))
+            text = text.Replace("(PRENOM)", prenom.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        var poste = FirstNonEmpty(values, "poste", "fonction", "qualite", "implique", "role");
+        if (!string.IsNullOrWhiteSpace(poste))
+            text = text.Replace("(POSTE)", poste.Trim(), StringComparison.OrdinalIgnoreCase);
+
+        var dateFr = ResolveFrenchDate(values);
+        if (!string.IsNullOrWhiteSpace(dateFr))
+        {
+            text = text.Replace("(DATE)", dateFr, StringComparison.OrdinalIgnoreCase);
+            text = LegacyDateMaskRegex.Replace(text, dateFr);
+        }
+
+        var bank = FirstNonEmpty(values, "compte_bancaire", "rib", "iban", "numero_compte");
+        if (!string.IsNullOrWhiteSpace(bank))
+            text = text.Replace("(XXXX)", bank.Trim(), StringComparison.Ordinal);
+
+        var marqueur = FirstNonEmpty(values, "marqueur_x", "placeholder_x", "placeholder_generique");
+        if (!string.IsNullOrWhiteSpace(marqueur))
+        {
+            var m = marqueur.Trim();
+            text = text.Replace("(X)", m, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return text;
     }
 
     /// <summary>Si la valeur est une date ISO <c>yyyy-MM-dd</c>, retourne l’équivalent <c>dd/MM/yyyy</c> (fr-FR).</summary>
@@ -328,67 +387,6 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
             return false;
         formatted = d.ToString("dd/MM/yyyy", CultureInfo.GetCultureInfo("fr-FR"));
         return true;
-    }
-
-    /// <summary>
-    /// Modèles Word exportés en texte : marqueurs nommés, <c>(X)</c>, <c>(XXXX)</c>, <c>XX/XX/2026</c> hors moteur <c>{{var}}</c>.
-    /// </summary>
-    private static string ApplyLegacyWordPlaceholders(string text, IReadOnlyDictionary<string, string> values)
-    {
-        if (string.IsNullOrEmpty(text))
-            return text;
-
-        var nom = FirstNonEmpty(values, "nom_complet", "nom", "prenom_nom");
-        text = ReplaceNamedLegacy(text, "(NOM)", string.IsNullOrWhiteSpace(nom) ? string.Empty : nom.Trim());
-
-        var prenom = FirstNonEmpty(values, "prenom");
-        text = ReplaceNamedLegacy(text, "(PRENOM)", string.IsNullOrWhiteSpace(prenom) ? string.Empty : prenom.Trim());
-
-        var poste = FirstNonEmpty(values, "poste", "fonction", "qualite", "implique", "role");
-        text = ReplaceNamedLegacy(text, "(POSTE)", string.IsNullOrWhiteSpace(poste) ? string.Empty : poste.Trim());
-
-        var dateFr = ResolveFrenchDate(values);
-        text = ReplaceNamedLegacy(text, "(DATE)", string.IsNullOrWhiteSpace(dateFr) ? string.Empty : dateFr);
-
-        if (!string.IsNullOrEmpty(dateFr))
-            text = LegacyDateMaskRegex.Replace(text, dateFr);
-
-        var bank = FirstNonEmpty(values, "compte_bancaire", "rib", "iban", "numero_compte");
-        text = text.Replace("(XXXX)", string.IsNullOrWhiteSpace(bank) ? string.Empty : bank, StringComparison.Ordinal);
-
-        var queue = new Queue<string>();
-        foreach (var v in new[]
-                 {
-                     FirstNonEmpty(values, "nom_complet", "prenom_nom"),
-                     FirstNonEmpty(values, "numero_cin", "cin", "cin_nr", "nr_cin"),
-                     FirstNonEmpty(values, "poste", "fonction", "qualite", "implique", "role"),
-                     FirstNonEmpty(values, "departement"),
-                     FirstNonEmpty(values, "email"),
-                     FirstNonEmpty(values, "civilite"),
-                 })
-        {
-            if (!string.IsNullOrWhiteSpace(v))
-                queue.Enqueue(v.Trim());
-        }
-
-        const string marker = "(X)";
-        while (true)
-        {
-            var i = text.IndexOf(marker, StringComparison.Ordinal);
-            if (i < 0)
-                break;
-            var repl = queue.Count > 0 ? queue.Dequeue() : string.Empty;
-            text = string.Concat(text.AsSpan(0, i), repl, text.AsSpan(i + marker.Length));
-        }
-
-        return text;
-    }
-
-    private static string ReplaceNamedLegacy(string text, string token, string value)
-    {
-        if (string.IsNullOrEmpty(text))
-            return text;
-        return text.Replace(token, value, StringComparison.Ordinal);
     }
 
     private static string? FirstNonEmpty(IReadOnlyDictionary<string, string> values, params string[] keys)
@@ -447,7 +445,7 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
         return null;
     }
 
-    private static string NormalizeCinAndRibText(string text, IReadOnlyDictionary<string, string> values)
+    private string NormalizeCinAndRibText(string text, IReadOnlyDictionary<string, string> values)
     {
         if (string.IsNullOrWhiteSpace(text))
             return text;
@@ -484,7 +482,7 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
         return CinValueRegex.IsMatch(t);
     }
 
-    private static bool IsUsableRib(string? rib)
+    private bool IsUsableRib(string? rib)
     {
         if (string.IsNullOrWhiteSpace(rib))
             return false;
@@ -493,7 +491,7 @@ public sealed class TemplateEngineService(ITemplatePlaceholderNormalizationServi
             return false;
         if (ContainsAny(t.ToLowerInvariant(), "test", "demo", "xxx", "n/a"))
             return false;
-        return RibValueRegex.IsMatch(t);
+        return ribValidation.IsValidRibDigits(t);
     }
 
     /// <summary>Nettoyage final : titre dupliqué, espaces typographiques et paragraphes.</summary>

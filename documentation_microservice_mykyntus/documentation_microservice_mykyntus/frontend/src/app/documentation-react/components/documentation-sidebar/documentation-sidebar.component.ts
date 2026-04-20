@@ -104,17 +104,17 @@ export class DocumentationSidebarComponent {
       { id: 'settings', labelKey: 'nav.settings', icon: 'settings' },
     ];
     const hrItems: SidebarNavItem[] = [
-      { id: 'hr-mgmt', labelKey: 'nav.allRequests', icon: 'settings' },
+      { id: 'hr-mgmt', labelKey: 'nav.allRequests', icon: 'clipboard-list' },
       { id: 'hr-doc-history', labelKey: 'nav.hrDocHistory', icon: 'history' },
       { id: 'doc-gen', labelKey: 'nav.docGen', icon: 'file-edit' },
-      { id: 'templates', labelKey: 'nav.templates', icon: 'settings' },
+      { id: 'templates', labelKey: 'nav.templates', icon: 'layers' },
       { id: 'notifications', labelKey: 'nav.notifications', icon: 'bell' },
       { id: 'settings', labelKey: 'nav.settings', icon: 'settings' },
     ];
     const rpItems: SidebarNavItem[] = [
       { id: 'dashboard', labelKey: 'nav.dashboard', icon: 'layout-dashboard' },
       { id: 'team-docs', labelKey: 'nav.teamDocs', icon: 'users' },
-      { id: 'hr-mgmt', labelKey: 'nav.allRequests', icon: 'settings' },
+      { id: 'hr-mgmt', labelKey: 'nav.allRequests', icon: 'clipboard-list' },
       { id: 'hr-doc-history', labelKey: 'nav.hrDocHistory', icon: 'history' },
       { id: 'notifications', labelKey: 'nav.notifications', icon: 'bell' },
       { id: 'settings', labelKey: 'nav.settings', icon: 'settings' },

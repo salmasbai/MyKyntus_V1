@@ -23,11 +23,13 @@ public sealed record NormalizedPlaceholderMatch(
     bool IsRequired,
     string? ValidationRule);
 
-public sealed class TemplatePlaceholderNormalizationService : ITemplatePlaceholderNormalizationService
+public sealed class TemplatePlaceholderNormalizationService(IRibValidationService ribValidation)
+    : ITemplatePlaceholderNormalizationService
 {
     private static readonly Regex CurlyPlaceholderRegex = new(@"\{\{\s*([^{}]+?)\s*\}\}", RegexOptions.Compiled);
     private static readonly Regex HumanPlaceholderRegex = new(@"\(([^\(\)\r\n]{1,120})\)", RegexOptions.Compiled);
-    private static readonly Regex InvalidTokenRegex = new(@"^(x+|_+|-+|\s*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    /// <summary>Ignore uniquement les jetons vides / blancs — plus de filtrage silencieux de <c>(X)</c>.</summary>
+    private static readonly Regex InvalidTokenRegex = new(@"^\s+$", RegexOptions.Compiled);
 
     private static readonly IReadOnlyDictionary<string, string> Synonyms =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -63,6 +65,7 @@ public sealed class TemplatePlaceholderNormalizationService : ITemplatePlacehold
             ["rib"] = "rib",
             ["iban"] = "rib",
             ["compte_bancaire"] = "rib",
+            ["xxxx"] = "rib",
             ["date_document"] = "date_document",
             ["date"] = "date_document",
             ["departement"] = "departement",
@@ -209,12 +212,12 @@ public sealed class TemplatePlaceholderNormalizationService : ITemplatePlacehold
         return "text";
     }
 
-    private static string? InferValidationRule(string lower, string type)
+    private string? InferValidationRule(string lower, string type)
     {
         if (lower.Contains("cin", StringComparison.Ordinal))
             return @"^[A-Za-z0-9]{4,20}$";
         if (ContainsAny(lower, "rib", "iban", "compte"))
-            return @"^[A-Z0-9]{10,34}$|^[0-9]{14,30}$";
+            return ribValidation.DigitsOnlyValidationPattern;
         if (type == "date")
             return @"^\d{4}-\d{2}-\d{2}$|^\d{2}/\d{2}/\d{4}$";
         return null;

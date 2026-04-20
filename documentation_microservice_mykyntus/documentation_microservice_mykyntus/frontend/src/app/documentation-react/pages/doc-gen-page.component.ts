@@ -25,8 +25,10 @@ import type {
 } from '../../shared/models/api.models';
 import type { DocumentationRole } from '../interfaces/documentation-role';
 import { switchMapOnDocumentationContext } from '../lib/documentation-context-refresh';
+import { generatedDocumentExportBaseName } from '../lib/documentation-dto-mappers';
 import {
   formatDocumentationHttpError,
+  triggerBlobDownload,
   triggerDownloadFromHttpResponse,
 } from '../lib/documentation-download.util';
 import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
@@ -85,6 +87,16 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     missingVariables: string[];
   } | null = null;
   private draftPreviewPdfUrl: string | null = null;
+  /** Aperçu brouillon (workflow) : PDF QuestPDF ou rendu HTML du DOCX d’origine (mammoth). */
+  draftPreviewKind: 'pdf' | 'docx' | 'html' | 'text' | 'other' | null = null;
+  draftPreviewHtml: SafeHtml | null = null;
+  /** HTML mammoth brut (sans sanitizer) pour amorcer CKEditor avec la même mise en forme que l’aperçu. */
+  private draftPreviewHtmlSource: string | null = null;
+  /** Copie figée pour le panneau « brouillon RH » (aperçu identique à la colonne de droite). */
+  rhDraftPanelPreviewKind: 'pdf' | 'docx' | 'text' | null = null;
+  rhDraftPanelPdfUrl: string | null = null;
+  rhDraftPanelPreviewHtml: SafeHtml | null = null;
+  private rhDraftPanelHtmlSource: string | null = null;
   lastGenerateMessage: string | null = null;
   lastGeneratedDocumentId: string | null = null;
   lastGeneratedFileName: string | null = null;
@@ -96,6 +108,13 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
   rhInlineEditorContentEditable = '';
   rhInlineEditorHtml = '';
   rhInlineEditorSavedHtml = '';
+  /**
+   * Contenu initial CKEditor uniquement : ne pas le lier à `rhInlineEditorHtml` sous peine de
+   * `editor.data.set()` à chaque frappe (curseur qui remonte en tête de document).
+   */
+  rhInlineEditorCkData = '';
+  /** Référence CKEditor : lecture `getData()` avant enregistrer (le dernier `(change)` peut ne pas encore être arrivé). */
+  private rhInlineEditorCkEditor: { setData(data: string): void; getData?: () => string } | null = null;
   readonly ckEditor = ClassicEditor;
   readonly ckEditorConfig: any = {
     toolbar: [
@@ -175,6 +194,16 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     return this.embedPdfUrl;
   }
 
+  /** Colonne droite : brouillon workflow prioritaire sur le PDF / DOCX issu de l’API génération. */
+  get activeRightColumnPreviewKind(): 'pdf' | 'docx' | 'html' | 'text' | 'other' | null {
+    if (this.draftPreviewKind) return this.draftPreviewKind;
+    return this.embedPreviewKind;
+  }
+
+  get activeRightColumnPreviewHtml(): SafeHtml | null {
+    return this.draftPreviewHtml ?? this.embedPreviewHtml;
+  }
+
   /**
    * PDF à prévisualiser / exporter : dernière génération de session en priorité,
    * sinon document déjà lié à la demande sélectionnée (statut généré).
@@ -192,17 +221,18 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
    * Menus téléchargement / modale : uniquement pour un PDF déjà persisté (pas pendant l’aperçu brouillon).
    */
   get downloadMenuDocumentId(): string | null {
-    if (this.draftPreviewPdfUrl) return null;
+    if (this.draftPreviewPdfUrl || this.draftPreviewKind) return null;
     return this.embedDocumentId?.trim() || null;
   }
 
   get isEmbeddedPreviewNonPdf(): boolean {
-    return !!this.embedPreviewKind && this.embedPreviewKind !== 'pdf';
+    const k = this.activeRightColumnPreviewKind;
+    return !!k && k !== 'pdf';
   }
 
   /** Téléchargements PDF/DOCX depuis le texte IA (aperçu non persisté). */
   get canDownloadAiDirectExports(): boolean {
-    return false;
+    return !!(this.lastAiDirectDocumentText ?? '').trim();
   }
 
   /** Sous-titre modale : fichier récent ou référence demande. */
@@ -251,6 +281,18 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     if (this.autoPreviewTimer) clearTimeout(this.autoPreviewTimer);
   }
 
+  openNativeDatePicker(input: HTMLInputElement, ev?: Event): void {
+    ev?.preventDefault();
+    ev?.stopPropagation();
+    const w = input as unknown as { showPicker?: () => void | Promise<unknown> };
+    const r = w.showPicker?.();
+    if (r && typeof (r as Promise<unknown>).then === 'function') {
+      void (r as Promise<unknown>).catch(() => input.focus());
+    } else {
+      input.focus();
+    }
+  }
+
   canGenerate(role: DocumentationRole): boolean {
     return role === 'RH' || role === 'Admin';
   }
@@ -260,9 +302,6 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     this.readyUploadFile = input.files?.[0] ?? null;
     this.readyUploadMessage = null;
     this.readyUploadMessageOk = false;
-    // #region agent log
-    fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'doc-ready',hypothesisId:'H-doc1',location:'doc-gen-page.component.ts:onReadyUploadFileSelected',message:'ready file picker change',data:{hasFile:!!this.readyUploadFile,fileExt:this.readyUploadFile?(this.readyUploadFile.name.split('.').pop()??''):'',hasLinkedRequest:!!this.selectedLinkedRequest,sendDisabled:this.isReadyUploadSendDisabled()},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (this.readyUploadFile && !this.isAllowedReadyUploadFile(this.readyUploadFile)) {
       this.readyUploadMessage = 'Format non pris en charge. Utilisez PDF, DOCX, DOC ou ODT.';
       this.readyUploadFile = null;
@@ -309,9 +348,6 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
 
   submitReadyDocument(role: DocumentationRole): void {
     if (!this.canGenerate(role)) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'doc-ready',hypothesisId:'H-doc2',location:'doc-gen-page.component.ts:submitReadyDocument:entry',message:'submit ready document',data:{sendDisabled:this.isReadyUploadSendDisabled(),hasFile:!!this.readyUploadFile,hasLinkedRequest:!!this.selectedLinkedRequest},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     this.readyUploadMessage = null;
     this.readyUploadMessageOk = false;
     if (!this.selectedLinkedRequest) {
@@ -343,9 +379,6 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
             this.busyReadyUpload = false;
             this.readyUploadFile = null;
             this.clearReadyFileInput();
-            // #region agent log
-            fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'doc-ready',hypothesisId:'H-doc3',location:'doc-gen-page.component.ts:submitReadyDocument:success',message:'ready upload success',data:{fileName:res.fileName,sendDisabledAfter:this.isReadyUploadSendDisabled()},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
             this.readyUploadMessage = `Document prêt envoyé : ${res.fileName}.`;
             this.readyUploadMessageOk = true;
             this.lastGeneratedDocumentId = res.generatedDocumentId;
@@ -391,6 +424,23 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
 
   selectedTemplate(): DocumentTemplateListItemDto | null {
     return this.templates.find((t) => t.id === this.selectedTemplateId) ?? null;
+  }
+
+  /** Base de nom de fichier pour les exports depuis la génération RH (collaborateur + modèle + date). */
+  get exportFileHintForPreviewModal(): string | null {
+    if (!this.downloadMenuDocumentId?.trim()) return null;
+    const u = this.selectedUser();
+    const emp = u
+      ? `${(u.prenom ?? '').trim()} ${(u.nom ?? '').trim()}`.trim() || this.userOptionLabel(u).split('—')[0]?.trim() || 'Collaborateur'
+      : 'Collaborateur';
+    const st = this.selectedTemplate();
+    const typ = (st?.name ?? st?.code ?? 'Document').trim();
+    return generatedDocumentExportBaseName({
+      employeeName: emp,
+      type: typ,
+      generatedAt: new Date().toISOString(),
+      requestDate: this.effectiveDate?.trim() || undefined,
+    });
   }
 
   onEmployeeChange(): void {
@@ -518,9 +568,47 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     );
   }
 
-  /** Étape 2 — désactivé tant que l’aperçu PDF n’a pas réussi. */
+  /** True si tous les champs du bloc « Formulaire RH » marqués obligatoires sont renseignés (sinon aucune contrainte). */
+  areRhRequiredVariablesFilled(): boolean {
+    for (const v of this.hrVariablesForCurrentTemplate()) {
+      if (!v.isRequired) continue;
+      if (!(this.hrFieldValues[v.name] ?? '').trim()) return false;
+    }
+    return true;
+  }
+
+  /** Étape 2 — aperçu prêt + champs RH obligatoires saisis lorsqu’ils existent. */
   canFinalizeGenerate(role: DocumentationRole): boolean {
-    return this.canRunAction(role) && this.previewReady;
+    return this.canRunAction(role) && this.previewReady && this.areRhRequiredVariablesFilled();
+  }
+
+  /** Message pour tooltip / aide lorsque le bouton principal de génération est désactivé. */
+  generateDocButtonHint(role: DocumentationRole): string {
+    if (this.busyGenerate) return 'Génération en cours…';
+    if (this.busyPreview) return 'Préparation de l’aperçu…';
+    if (!this.canGenerate(role)) return 'Réservé aux profils RH / Admin.';
+    if (!this.selectedLinkedRequest) return 'Sélectionnez une demande approuvée.';
+    if (!this.selectedUserId) return 'Choisissez un collaborateur.';
+    if (!this.selectedTemplateId) return 'Choisissez un modèle documentaire.';
+    if (!this.effectiveDate?.trim()) return 'Indiquez la date d’effet.';
+    if (!this.previewReady) return 'Attendez la fin de l’aperçu (colonne de droite).';
+    if (!this.areRhRequiredVariablesFilled()) {
+      const missing = this.missingRhRequiredVariableLabels();
+      return missing.length
+        ? `Champs RH obligatoires manquants : ${missing.join(', ')}.`
+        : 'Complétez les champs RH obligatoires du modèle.';
+    }
+    return '';
+  }
+
+  private missingRhRequiredVariableLabels(): string[] {
+    const out: string[] = [];
+    for (const v of this.hrVariablesForCurrentTemplate()) {
+      if (!v.isRequired) continue;
+      if ((this.hrFieldValues[v.name] ?? '').trim()) continue;
+      out.push((v.displayLabel ?? v.name).trim() || v.name);
+    }
+    return out;
   }
 
   onTemplateOrDateChanged(): void {
@@ -542,16 +630,10 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     const body = this.buildWorkflowBody();
     this.sub.add(
       this.data.previewDocumentWorkflow(body).subscribe({
-        next: (resp: HttpResponse<Blob>) => {
+        next: async (resp: HttpResponse<Blob>) => {
           this.busyPreview = false;
-          const blob = resp.body;
-          if (resp.status !== 200 || !blob?.size) {
-            void this.applyPreviewErrorFromBlob(blob ?? null);
-            return;
-          }
-          const mime =
-            resp.headers.get('content-type')?.split(';')[0]?.trim() || 'application/pdf';
-          this.draftPreviewPdfUrl = URL.createObjectURL(new Blob([blob], { type: mime }));
+          const ok = await this.applyWorkflowPreviewFromHttpResponse(resp);
+          if (!ok) return;
           this.applyPreviewKpiFromHeaders(resp);
           this.previewReady = true;
         },
@@ -571,7 +653,6 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     this.lastGenerateMessage = null;
     this.lastGeneratedDocumentId = null;
     this.lastGeneratedFileName = null;
-    this.clearDraftPreviewState();
     this.revokeEmbedPdf();
     this.embedPdfError = null;
 
@@ -580,7 +661,6 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.busyGenerate = false;
           if (res.needsRhEditorReview && res.generatedDocumentId?.trim()) {
-            this.previewReady = false;
             this.lastGeneratedDocumentId = null;
             this.lastGeneratedFileName = null;
             this.rhInlineEditorDocumentId = res.generatedDocumentId.trim();
@@ -594,11 +674,37 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
               return;
             }
             this.notify.showSuccess('Brouillon créé — édition RH disponible dans cette page.');
-            this.openRhInlineEditor();
-            this.refreshDocumentRequestsAfterGeneration();
+            this.busyPreview = true;
+            this.sub.add(
+              this.data.previewDocumentWorkflow(body).subscribe({
+                next: async (resp) => {
+                  this.busyPreview = false;
+                  const ok = await this.applyWorkflowPreviewFromHttpResponse(resp);
+                  if (!ok) {
+                    this.previewReady = false;
+                    this.openRhInlineEditor();
+                    this.refreshDocumentRequestsAfterGeneration();
+                    return;
+                  }
+                  this.applyPreviewKpiFromHeaders(resp);
+                  this.previewReady = true;
+                  this.copyDraftPreviewToRhPanel();
+                  this.openRhInlineEditor();
+                  this.refreshDocumentRequestsAfterGeneration();
+                },
+                error: async (e: unknown) => {
+                  this.busyPreview = false;
+                  this.previewReady = false;
+                  await this.handlePreviewHttpError(e);
+                  this.openRhInlineEditor();
+                  this.refreshDocumentRequestsAfterGeneration();
+                },
+              }),
+            );
             return;
           }
           this.previewReady = false;
+          this.clearDraftPreviewState();
           this.lastGeneratedDocumentId = res.generatedDocumentId;
           this.lastGeneratedFileName = res.fileName;
           this.lastGenerateMessage = `Document généré avec succès. Fichier : ${res.fileName}. L’aperçu à droite correspond au PDF officiel.`;
@@ -626,6 +732,7 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
   openRhInlineEditor(): void {
     const id = this.rhInlineEditorDocumentId?.trim();
     if (!id || this.busyRhEditorLoad) return;
+    this.copyDraftPreviewToRhPanel();
     this.rhInlineEditorOpen = true;
     this.busyRhEditorLoad = true;
     this.sub.add(
@@ -638,8 +745,14 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
           if (this.shouldAutoFormatDenseText(this.rhInlineEditorContentEditable)) {
             this.rhInlineEditorContentEditable = this.buildAutoFormattedText(this.rhInlineEditorContentEditable);
           }
-          this.rhInlineEditorHtml = this.toEditorHtml(this.rhInlineEditorContentEditable);
-          this.rhInlineEditorSavedHtml = this.rhInlineEditorHtml;
+          const plainHtml = this.toEditorHtml(this.rhInlineEditorContentEditable);
+          if (this.rhDraftPanelHtmlSource) {
+            this.rhInlineEditorHtml = this.rhDraftPanelHtmlSource;
+            this.rhInlineEditorSavedHtml = this.rhDraftPanelHtmlSource;
+          } else {
+            this.rhInlineEditorHtml = plainHtml;
+            this.rhInlineEditorSavedHtml = plainHtml;
+          }
           this.rhInlineEditorMode = 'preview';
           this.rhInlineEditorMissingVariables = dto.missingVariables ?? [];
         },
@@ -665,15 +778,18 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
   }
 
   canStartRhModification(role: DocumentationRole): boolean {
-    return (
+    const base =
       this.generationMode === 'template' &&
       this.canGenerate(role) &&
       this.shouldAttachDocumentRequestId() &&
       !!this.selectedUserId &&
       !!this.selectedTemplateId &&
       !!this.effectiveDate &&
-      (this.previewReady || this.canOpenRhInlineEditor())
-    );
+      (this.previewReady || this.canOpenRhInlineEditor());
+    if (!base) return false;
+    // Brouillon déjà créé : édition / finalisation sans re-vérifier le formulaire RH de la page.
+    if (this.canOpenRhInlineEditor()) return true;
+    return this.areRhRequiredVariablesFilled();
   }
 
   startRhModification(role: DocumentationRole): void {
@@ -695,8 +811,10 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     this.runGenerate(role);
   }
 
-  onCkEditorReady(editor: any): void {
-    editor?.setData?.(this.rhInlineEditorHtml || this.rhInlineEditorSavedHtml || '');
+  onCkEditorReady(editor: unknown): void {
+    const e = editor as { setData?: (data: string) => void; getData?: () => string } | null;
+    this.rhInlineEditorCkEditor =
+      e && typeof e.setData === 'function' ? (e as { setData(data: string): void; getData?: () => string }) : null;
   }
 
   onCkEditorChange(event: any): void {
@@ -707,16 +825,24 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
   closeRhInlineEditor(): void {
     this.rhInlineEditorOpen = false;
     this.rhInlineEditorMode = 'preview';
+    this.rhDraftPanelPreviewKind = null;
+    this.rhDraftPanelPdfUrl = null;
+    this.rhDraftPanelPreviewHtml = null;
+    this.rhDraftPanelHtmlSource = null;
   }
 
   openRhInlineEditorEditMode(): void {
     if (!this.rhInlineEditorOpen) return;
+    this.rhInlineEditorCkData = this.rhInlineEditorHtml || this.rhInlineEditorSavedHtml || '';
+    this.rhInlineEditorCkEditor = null;
     this.rhInlineEditorMode = 'edit';
   }
 
   cancelRhInlineEditorEdit(): void {
     this.rhInlineEditorHtml = this.rhInlineEditorSavedHtml || this.rhInlineEditorHtml;
     this.rhInlineEditorMode = 'preview';
+    this.rhInlineEditorCkEditor = null;
+    this.rhInlineEditorCkData = '';
   }
 
   saveRhInlineEditor(): void {
@@ -730,6 +856,8 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
           this.busyRhEditorSave = false;
           this.rhInlineEditorSavedHtml = this.rhInlineEditorHtml;
           this.rhInlineEditorMode = 'preview';
+          this.rhInlineEditorCkEditor = null;
+          this.rhInlineEditorCkData = '';
           this.notify.showSuccess('Texte RH enregistré.');
         },
         error: (e: unknown) => {
@@ -750,6 +878,7 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     );
     this.rhInlineEditorContentEditable = withoutImmediateDupWords;
     this.rhInlineEditorHtml = this.toEditorHtml(this.rhInlineEditorContentEditable);
+    this.rhInlineEditorCkEditor?.setData(this.rhInlineEditorHtml);
   }
 
   autoFormatRhInlineDocument(): void {
@@ -760,6 +889,7 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
 
     this.rhInlineEditorContentEditable = text;
     this.rhInlineEditorHtml = this.toEditorHtml(text);
+    this.rhInlineEditorCkEditor?.setData(this.rhInlineEditorHtml);
   }
 
   finalizeRhInlineEditor(role: DocumentationRole): void {
@@ -775,13 +905,19 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
             this.data.finalizeRhGeneratedDocument(id).subscribe({
               next: (res) => {
                 this.busyRhEditorFinalize = false;
-                this.rhInlineEditorOpen = false;
                 this.rhInlineEditorDocumentId = null;
                 this.rhInlineEditorMissingVariables = [];
+                this.closeRhInlineEditor();
+                this.clearDraftPreviewState();
                 this.lastGeneratedDocumentId = res.generatedDocumentId;
                 this.lastGeneratedFileName = res.fileName;
                 this.lastGenerateMessage = `Document final validé. Fichier : ${res.fileName}.`;
-                this.notify.showSuccess('PDF final généré avec succès.');
+                const isWord = (res.fileName ?? '').trim().toLowerCase().endsWith('.docx');
+                this.notify.showSuccess(
+                  isWord
+                    ? 'Document final enregistré au format Word (mise en page identique au modèle).'
+                    : 'Document final généré avec succès.',
+                );
                 this.loadEmbedPdfForEffectiveId();
                 this.refreshDocumentRequestsAfterGeneration();
               },
@@ -812,6 +948,69 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
       URL.revokeObjectURL(this.draftPreviewPdfUrl);
       this.draftPreviewPdfUrl = null;
     }
+    this.draftPreviewKind = null;
+    this.draftPreviewHtml = null;
+    this.draftPreviewHtmlSource = null;
+  }
+
+  /** Recopie l’aperçu workflow courant pour le panneau brouillon RH (même rendu que la colonne droite). */
+  private copyDraftPreviewToRhPanel(): void {
+    this.rhDraftPanelHtmlSource = this.draftPreviewHtmlSource;
+    if (this.draftPreviewKind === 'pdf' && this.draftPreviewPdfUrl) {
+      this.rhDraftPanelPreviewKind = 'pdf';
+      this.rhDraftPanelPdfUrl = this.draftPreviewPdfUrl;
+      this.rhDraftPanelPreviewHtml = null;
+    } else if (this.draftPreviewKind === 'docx' && this.draftPreviewHtml) {
+      this.rhDraftPanelPreviewKind = 'docx';
+      this.rhDraftPanelPdfUrl = null;
+      this.rhDraftPanelPreviewHtml = this.draftPreviewHtml;
+    } else {
+      this.rhDraftPanelPreviewKind = 'text';
+      this.rhDraftPanelPdfUrl = null;
+      this.rhDraftPanelPreviewHtml = null;
+    }
+  }
+
+  /** Applique la réponse HTTP de <c>documents/preview</c> (PDF ou DOCX rempli). */
+  private async applyWorkflowPreviewFromHttpResponse(resp: HttpResponse<Blob>): Promise<boolean> {
+    const blob = resp.body;
+    if (resp.status !== 200 || !blob?.size) {
+      await this.applyPreviewErrorFromBlob(blob ?? null);
+      return false;
+    }
+    const mime =
+      resp.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() || blob.type?.toLowerCase() || '';
+    this.clearDraftPreviewBlobOnly();
+    const buf = await blob.arrayBuffer();
+
+    if (mime === 'application/pdf' || mime.endsWith('/pdf')) {
+      this.draftPreviewPdfUrl = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' }));
+      this.draftPreviewKind = 'pdf';
+      return true;
+    }
+
+    const head = new Uint8Array(buf.byteLength >= 4 ? buf.slice(0, 4) : buf);
+    const looksZip = buf.byteLength >= 2 && head[0] === 0x50 && head[1] === 0x4b;
+    const treatAsDocx =
+      mime.includes('wordprocessingml') ||
+      mime === 'application/msword' ||
+      (mime === 'application/octet-stream' && looksZip);
+
+    if (treatAsDocx) {
+      try {
+        const html = await this.mammothDocxArrayBufferToHtml(buf);
+        this.draftPreviewKind = 'docx';
+        this.draftPreviewHtmlSource = html;
+        this.draftPreviewHtml = this.sanitizer.bypassSecurityTrustHtml(html);
+        return true;
+      } catch {
+        this.notify.showError('Aperçu : conversion du document Word impossible.');
+        return false;
+      }
+    }
+
+    this.notify.showError('Format d’aperçu non reconnu.');
+    return false;
   }
 
   private clearDraftPreviewState(): void {
@@ -968,14 +1167,32 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     ) {
       try {
         const buf = await blob.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer: buf });
-        this.embedPreviewHtml = this.sanitizer.bypassSecurityTrustHtml(result.value);
+        const html = await this.mammothDocxArrayBufferToHtml(buf);
+        this.embedPreviewHtml = this.sanitizer.bypassSecurityTrustHtml(html);
         this.embedPreviewKind = 'docx';
         return;
       } catch {
         this.embedPdfError = 'Le document Word a bien été généré, mais son aperçu intégré a échoué. Utilisez Télécharger.';
         this.embedPreviewKind = 'other';
         return;
+      }
+    }
+
+    if (mime === 'application/octet-stream') {
+      const buf = await blob.arrayBuffer();
+      const head = new Uint8Array(buf.byteLength >= 4 ? buf.slice(0, 4) : buf);
+      const looksZip = buf.byteLength >= 2 && head[0] === 0x50 && head[1] === 0x4b;
+      if (looksZip) {
+        try {
+          const html = await this.mammothDocxArrayBufferToHtml(buf);
+          this.embedPreviewHtml = this.sanitizer.bypassSecurityTrustHtml(html);
+          this.embedPreviewKind = 'docx';
+          return;
+        } catch {
+          this.embedPdfError = 'Le document Word a bien été généré, mais son aperçu intégré a échoué. Utilisez Télécharger.';
+          this.embedPreviewKind = 'other';
+          return;
+        }
       }
     }
 
@@ -1186,7 +1403,23 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     return escaped.replace(/\r\n|\r|\n/g, '<br>');
   }
 
+  /** DOCX → HTML (images en data URI, styles Word par défaut de mammoth). */
+  private async mammothDocxArrayBufferToHtml(arrayBuffer: ArrayBuffer): Promise<string> {
+    const result = await mammoth.convertToHtml(
+      { arrayBuffer },
+      {
+        convertImage: mammoth.images.dataUri,
+        includeDefaultStyleMap: true,
+      },
+    );
+    return result.value;
+  }
+
   private syncPlainTextFromEditorHtml(): void {
+    const liveHtml = this.rhInlineEditorCkEditor?.getData?.();
+    if (typeof liveHtml === 'string') {
+      this.rhInlineEditorHtml = liveHtml;
+    }
     if (typeof document === 'undefined') return;
     const div = document.createElement('div');
     div.innerHTML = this.rhInlineEditorHtml ?? '';
@@ -1266,15 +1499,10 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     const body = this.buildWorkflowBody();
     this.sub.add(
       this.data.previewDocumentWorkflow(body).subscribe({
-        next: (resp: HttpResponse<Blob>) => {
+        next: async (resp: HttpResponse<Blob>) => {
           this.busyPreview = false;
-          const blob = resp.body;
-          if (resp.status !== 200 || !blob?.size) {
-            void this.applyPreviewErrorFromBlob(blob ?? null);
-            return;
-          }
-          const mime = resp.headers.get('content-type')?.split(';')[0]?.trim() || 'application/pdf';
-          this.draftPreviewPdfUrl = URL.createObjectURL(new Blob([blob], { type: mime }));
+          const ok = await this.applyWorkflowPreviewFromHttpResponse(resp);
+          if (!ok) return;
           this.applyPreviewKpiFromHeaders(resp);
           this.previewReady = true;
         },
@@ -1363,12 +1591,13 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
   regenerateAiDirectPreview(): void {
     if (this.generationMode !== 'template') return;
     this.clearDraftPreviewState();
-    this.runLegacyWorkflowPreviewAuto();
+    this.runAiDirectPreviewChain();
   }
 
   downloadAiDirectExport(format: 'pdf' | 'docx'): void {
     const text = this.lastAiDirectDocumentText?.trim();
     if (!text) return;
+    const titleBase = (this.selectedTemplate()?.name ?? 'Document').replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '_');
     this.sub.add(
       this.data
         .postGenerateDocumentAiExport({
@@ -1378,7 +1607,7 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
         })
         .subscribe({
           next: (resp) => {
-            const fb = format === 'pdf' ? 'document.pdf' : 'document.docx';
+            const fb = format === 'pdf' ? `${titleBase}.pdf` : `${titleBase}.docx`;
             triggerDownloadFromHttpResponse(resp, fb);
             this.notify.showSuccess('Téléchargement démarré.');
           },
@@ -1482,10 +1711,16 @@ export class DocGenPageComponent implements OnInit, OnDestroy {
     this.sub.add(
       this.data.finalizeRhGeneratedDocument(generatedDocumentId).subscribe({
         next: (res) => {
+          this.clearDraftPreviewState();
           this.lastGeneratedDocumentId = res.generatedDocumentId;
           this.lastGeneratedFileName = res.fileName;
           this.lastGenerateMessage = `Document final validé. Fichier : ${res.fileName}.`;
-          this.notify.showSuccess('Document généré sans modification RH.');
+          const isWord = (res.fileName ?? '').trim().toLowerCase().endsWith('.docx');
+          this.notify.showSuccess(
+            isWord
+              ? 'Document enregistré au format Word (mise en page identique au modèle), sans modification RH.'
+              : 'Document généré sans modification RH.',
+          );
           this.loadEmbedPdfForEffectiveId();
           this.refreshDocumentRequestsAfterGeneration();
         },

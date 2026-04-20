@@ -5,7 +5,11 @@ import { Subscription } from 'rxjs';
 import { DocumentationIdentityService } from '../../core/services/documentation-identity.service';
 import type { DocumentationRequest } from '../interfaces/documentation-entities';
 import { switchMapOnDocumentationContext } from '../lib/documentation-context-refresh';
-import { mapDocumentRequestDto } from '../lib/documentation-dto-mappers';
+import {
+  generatedDocumentDisplayLabel,
+  generatedDocumentExportBaseName,
+  mapDocumentRequestDto,
+} from '../lib/documentation-dto-mappers';
 import { DocumentationApiService } from '../services/documentation-api.service';
 import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
 import { GeneratedDocumentFormatMenuComponent } from '../components/generated-document-format-menu/generated-document-format-menu.component';
@@ -33,6 +37,7 @@ export class RequestTrackingPageComponent implements OnInit, OnDestroy {
   previewGeneratedId: string | null = null;
   previewTitle = '';
   previewSubtitle: string | null = null;
+  previewExportFileNameBase: string | null = null;
   private sub = new Subscription();
 
   constructor(
@@ -73,14 +78,36 @@ export class RequestTrackingPageComponent implements OnInit, OnDestroy {
     const id = r.generatedDocumentId?.trim();
     if (!id) return;
     this.previewGeneratedId = id;
-    this.previewTitle = 'Document généré';
-    this.previewSubtitle = `${r.type} · ${r.id}`;
+    this.previewTitle = generatedDocumentDisplayLabel({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
+    this.previewSubtitle = `${r.id}`;
+    this.previewExportFileNameBase = generatedDocumentExportBaseName({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
     this.previewOpen = true;
   }
 
   closePreview(): void {
     this.previewOpen = false;
     this.previewGeneratedId = null;
+    this.previewExportFileNameBase = null;
+  }
+
+  exportFileNameHint(r: DocumentationRequest): string | null {
+    if (!r.generatedDocumentId?.trim()) return null;
+    return generatedDocumentExportBaseName({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
   }
 
 }

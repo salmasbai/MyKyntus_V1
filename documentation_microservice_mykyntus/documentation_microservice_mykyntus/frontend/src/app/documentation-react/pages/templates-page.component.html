@@ -1,106 +1,40 @@
 <div class="space-y-6">
   <div class="card-navy p-4 space-y-3">
     <h3 class="text-lg font-bold text-white">Nouveau modèle RH</h3>
-    <div class="flex flex-wrap gap-2 text-xs">
-      <button type="button" class="px-3 py-1 rounded border border-navy-700" (click)="newTemplateMode='upload'">Fichier / texte</button>
-      <button type="button" class="px-3 py-1 rounded border border-navy-700" (click)="newTemplateMode='internal'">Création via le moteur interne</button>
-      <button type="button" class="px-3 py-1 rounded border border-navy-700" (click)="newTemplateMode='ai'">Génération IA</button>
-      <button type="button" class="px-3 py-1 rounded border border-navy-700" (click)="newTemplateMode='rule'">Génération guidée</button>
-    </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-      <input class="bg-navy-900 border border-navy-700 rounded px-2 py-2 text-sm" [(ngModel)]="form.code" placeholder="Code template" />
+      <input class="doc-field" [(ngModel)]="form.code" placeholder="Code modèle" />
       <input
-        class="bg-navy-900 border border-navy-700 rounded px-2 py-2 text-sm"
+        class="doc-field"
         [(ngModel)]="form.name"
         (ngModelChange)="onNameChanged($event)"
-        placeholder="Nom template"
+        placeholder="Nom du modèle"
       />
-      <input class="bg-navy-900 border border-navy-700 rounded px-2 py-2 text-sm" [(ngModel)]="form.documentTypeId" placeholder="DocumentTypeId (optionnel)" />
-      @if (newTemplateMode === 'upload' || newTemplateMode === 'internal') {
-        <input class="bg-navy-900 border border-navy-700 rounded px-2 py-2 text-sm" [(ngModel)]="form.fileName" placeholder="Nom fichier source (mode texte)" />
-      }
+      <input
+        class="doc-field md:col-span-2"
+        [(ngModel)]="form.documentTypeId"
+        placeholder="Identifiant type de document (optionnel)"
+      />
     </div>
-    @if (newTemplateMode === 'upload') {
-      <div class="space-y-2">
-        <p class="text-xs text-slate-500 leading-relaxed">
-          Les documents statiques (PDF / Word prêts, copie pour le dossier ou téléchargement pilote) se créent depuis la page
-          <span class="font-semibold text-slate-400">Génération de documents</span>, pas ici.
-        </p>
-        <label class="block text-xs text-slate-400">Fichier (PDF, DOCX, …) — modèle dynamique : analyse des placeholders si configuré</label>
-        <label
-          class="inline-flex w-fit cursor-pointer items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2 text-xs font-semibold text-slate-100 transition-all hover:-translate-y-0.5 hover:bg-slate-700 hover:shadow-lg"
-        >
-          <span class="truncate">Upload du modèle</span>
-          <input type="file" class="hidden" (change)="onUploadFileSelected($event)" />
-        </label>
-        @if (uploadFile) {
-          <p class="text-xs text-emerald-400/90">Sélection : {{ uploadFile.name }}</p>
-        }
-        <p class="text-xs text-slate-500">
-          Sinon collez le texte du modèle ci-dessous (détection des placeholders
-          <span class="font-mono">{{ placeholderSyntaxExample }}</span>).
-        </p>
-        <textarea class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-2 text-xs font-mono" rows="5" [(ngModel)]="form.content" [attr.placeholder]="uploadPlaceholderHint"></textarea>
-        <input
-          class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-2 text-xs"
-          [(ngModel)]="form.description"
-          placeholder="Description métier du modèle (optionnelle)"
-        />
-      </div>
-    } @else if (newTemplateMode === 'internal') {
-      <div class="space-y-3">
-        <p class="text-xs text-slate-400 leading-relaxed">
-          Mode local strict, sans IA. Le moteur détecte les placeholders humains, les normalise et prépare les champs canoniques.
-        </p>
-        <textarea
-          class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-2 text-xs font-mono"
-          rows="8"
-          [(ngModel)]="form.content"
-          placeholder="Collez ici le contenu du template, ex. Je soussigné (Nom Employé), titulaire du CIN (numero cin)..."
-        ></textarea>
-        <input
-          class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-2 text-xs"
-          [(ngModel)]="form.description"
-          placeholder="Description métier du modèle (optionnelle)"
-        />
-        <div class="flex flex-wrap gap-2 justify-end">
-          <button
-            type="button"
-            class="rounded-lg border border-blue-700/60 bg-navy-900 px-3 py-1.5 text-xs font-semibold text-blue-300 hover:bg-navy-800 disabled:opacity-50"
-            [disabled]="internalEngineBusy"
-            (click)="analyzeInternalEngine()"
-          >
-            @if (internalEngineBusy) {
-              Analyse…
-            } @else {
-              Analyser le contenu
-            }
-          </button>
-        </div>
-        @if (internalEngineAnalysis) {
-          <div class="rounded-lg border border-blue-900/40 bg-blue-950/20 p-3 space-y-3">
-            <p class="text-xs font-bold text-slate-300">Placeholders détectés par le moteur interne</p>
-            @if (internalEngineAnalysis.placeholders.length === 0) {
-              <p class="text-xs text-amber-400/90">Aucun placeholder détecté dans ce contenu.</p>
-            } @else {
-              <div class="space-y-2">
-                @for (ph of internalEngineAnalysis.placeholders; track ph.rawToken + ph.canonicalKey) {
-                  <div class="grid grid-cols-1 gap-2 rounded border border-navy-800 bg-navy-950/40 p-2 text-[11px] md:grid-cols-5">
-                    <div><span class="text-slate-500">Brut :</span> <span class="font-mono text-slate-200">{{ ph.rawToken }}</span></div>
-                    <div><span class="text-slate-500">Normalisé :</span> <span class="font-mono text-blue-300">{{ ph.normalizedKey }}</span></div>
-                    <div><span class="text-slate-500">Canonique :</span> <span class="font-mono text-emerald-300">{{ ph.canonicalKey }}</span></div>
-                    <div><span class="text-slate-500">Type :</span> {{ ph.type }}</div>
-                    <div><span class="text-slate-500">Statut :</span> {{ ph.status }}</div>
-                  </div>
-                }
-              </div>
-            }
-          </div>
-        }
-      </div>
-    } @else {
-      <textarea class="w-full bg-navy-900 border border-navy-700 rounded px-2 py-2 text-sm" rows="4" [(ngModel)]="form.description" placeholder="Décrivez le document RH à générer (IA ou règles selon l’onglet)"></textarea>
-    }
+    <div class="space-y-2">
+      <p class="text-xs text-slate-500 leading-relaxed">
+        Les documents statiques (PDF / Word prêts, copie pour le dossier ou téléchargement pilote) se créent depuis la page
+        <span class="font-semibold text-slate-400">Génération de documents</span>, pas ici.
+      </p>
+      <label class="block text-xs text-slate-400">Fichier (PDF, DOCX, …) — modèle dynamique : analyse des placeholders si configuré</label>
+      <label
+        class="inline-flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-navy-700 bg-navy-900 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-navy-800 hover:bg-navy-800"
+      >
+        <app-doc-icon name="file-up" klass="w-4 h-4 shrink-0 text-slate-400"></app-doc-icon>
+        <span class="truncate">Importer</span>
+        <input type="file" class="hidden" (change)="onUploadFileSelected($event)" />
+      </label>
+      @if (uploadFile) {
+        <p class="text-xs text-emerald-400/90">Sélection : {{ uploadFile.name }}</p>
+      }
+      <p class="text-xs text-slate-500">
+        Les placeholders sont détectés sur le DOCX / le PDF selon la configuration.
+      </p>
+    </div>
     <div class="flex justify-end">
       <button
         type="button"
@@ -121,7 +55,16 @@
   </div>
 
   @if (lastMessage) {
-    <p class="text-sm text-emerald-400/95 border border-emerald-500/30 rounded-lg px-3 py-2 bg-emerald-950/40">{{ lastMessage }}</p>
+    <p
+      class="text-sm rounded-lg border px-3 py-2"
+      [ngClass]="{
+        'border-emerald-500/35 bg-emerald-950/40 text-emerald-100': bannerToneComputed === 'success',
+        'border-amber-500/35 bg-amber-950/35 text-amber-100': bannerToneComputed === 'info',
+        'border-red-500/40 bg-red-950/35 text-red-100': bannerToneComputed === 'error',
+      }"
+    >
+      {{ lastMessage }}
+    </p>
   }
   @if (loading) {
     <p class="text-slate-400 text-sm">Chargement des modèles…</p>
@@ -135,7 +78,7 @@
     </div>
     <button
       type="button"
-      class="px-3 py-2 rounded border border-red-700/50 text-red-300 text-xs hover:bg-red-950/30 disabled:opacity-50"
+      class="btn-danger !text-xs !py-2 !px-3"
       [disabled]="cleaningDrafts"
       (click)="cleanupDraftTemplates()"
     >
@@ -202,8 +145,8 @@
               type="button"
               (click)="selectTemplate(template.id)"
               [disabled]="isTemplateActionLoading(template.id)"
-              class="template-action-button bg-slate-700 text-white hover:bg-slate-600"
-              title="Ouvrir le detail du modele"
+              class="template-action-button border-navy-700 bg-slate-700 text-white hover:bg-slate-600"
+              title="Ouvrir le détail du modèle"
             >
               <span class="template-action-button__label">
                 @if (isTemplateActionLoading(template.id, 'detail')) {
@@ -214,24 +157,42 @@
             </button>
             <button
               type="button"
-              (click)="visualizeTemplate(template)"
+              class="template-action-button template-action-button--icon border-navy-700 bg-navy-800 text-slate-200 hover:bg-navy-700 hover:text-blue-400"
+              title="Aperçu (fichier source)"
               [disabled]="isTemplateActionLoading(template.id)"
-              class="template-action-button bg-slate-600 text-white hover:bg-slate-500"
-              title="Previsualiser le fichier source"
+              (click)="visualizeTemplate(template)"
             >
               <span class="template-action-button__label">
                 @if (isTemplateActionLoading(template.id, 'visualize')) {
                   <span class="template-action-button__spinner" aria-hidden="true"></span>
+                } @else {
+                  <app-doc-icon name="eye" klass="w-4 h-4 shrink-0"></app-doc-icon>
                 }
-                <span>Visualiser</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="template-action-button border-blue-700/50 bg-blue-600 text-white hover:bg-blue-500"
+              title="Télécharger le fichier modèle source"
+              [disabled]="isTemplateActionLoading(template.id)"
+              (click)="downloadTemplateSource(template)"
+            >
+              <span class="template-action-button__label">
+                @if (isTemplateActionLoading(template.id, 'downloadSource')) {
+                  <span class="template-action-button__spinner" aria-hidden="true"></span>
+                  <span>Téléchargement…</span>
+                } @else {
+                  <app-doc-icon name="download" klass="w-4 h-4 shrink-0"></app-doc-icon>
+                  <span>Fichier source</span>
+                }
               </span>
             </button>
             <button
               type="button"
               (click)="toggleTemplateStatus(template)"
               [disabled]="isTemplateActionLoading(template.id)"
-              class="template-action-button bg-amber-600 text-white hover:bg-amber-500"
-              [attr.title]="template.isActive ? 'Desactiver ce modele' : 'Activer ce modele'"
+              class="template-action-button border-amber-700/40 bg-amber-600 text-white hover:bg-amber-500"
+              [attr.title]="template.isActive ? 'Désactiver ce modèle' : 'Activer ce modèle'"
             >
               <span class="template-action-button__label">
                 @if (isTemplateActionLoading(template.id, 'toggle')) {
@@ -244,8 +205,8 @@
               type="button"
               (click)="deleteTemplate(template)"
               [disabled]="isTemplateActionLoading(template.id)"
-              class="template-action-button bg-red-600 text-white hover:bg-red-700"
-              title="Supprimer ce modele"
+              class="template-action-button border-red-800/50 bg-red-600 text-white hover:bg-red-700"
+              title="Supprimer ce modèle"
             >
               <span class="template-action-button__label">
                 @if (isTemplateActionLoading(template.id, 'delete')) {
@@ -259,14 +220,14 @@
               (click)="generate(template)"
               [disabled]="isTemplateActionLoading(template.id) || !template.isActive"
               [attr.title]="!template.isActive ? 'Activez le modèle pour générer un PDF.' : null"
-              class="template-action-button bg-blue-600 text-white hover:bg-blue-500"
+              class="template-action-button border-blue-700/50 bg-blue-600 text-white hover:bg-blue-500"
             >
               <span class="template-action-button__label">
                 @if (isTemplateActionLoading(template.id, 'generate')) {
                   <span class="template-action-button__spinner" aria-hidden="true"></span>
                   <span>Génération…</span>
                 } @else {
-                  <app-doc-icon name="documents" klass="w-4 h-4"></app-doc-icon>
+                  <app-doc-icon name="documents" klass="w-4 h-4 shrink-0"></app-doc-icon>
                   <span>Générer (PDF)</span>
                 }
               </span>
@@ -314,32 +275,32 @@
             pilote. Vous pouvez partir des variables détectées et ajouter d’autres champs métier.
           </p>
           <div class="space-y-2">
-            @for (v of pilotVariables(); track $index) {
+            @for (v of pilotVariables(); track v.id) {
               <div class="grid grid-cols-1 gap-2 md:grid-cols-12 md:items-center md:gap-2">
                 <div class="md:col-span-3">
                   <input
                     type="text"
                     class="w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] font-mono text-blue-300"
                     [(ngModel)]="v.name"
-                    [name]="'vn_' + $index"
+                    [name]="'pilot_vn_' + v.id"
                     placeholder="Nom technique (cin, rib, ...)"
                   />
                 </div>
                 <input
                   type="text"
-                  class="md:col-span-6 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-xs text-slate-200"
+                  class="md:col-span-5 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-xs text-slate-200"
                   [(ngModel)]="v.displayLabel"
-                  [name]="'dl_' + $index"
+                  [name]="'pilot_dl_' + v.id"
                   placeholder="Libellé pour le pilote (ex. Date d’embauche)"
                 />
                 <label class="md:col-span-2 flex items-center gap-2 text-[11px] text-slate-400">
-                  <input type="checkbox" [(ngModel)]="v.isRequired" [name]="'req_' + $index" />
+                  <input type="checkbox" [(ngModel)]="v.isRequired" [name]="'pilot_req_' + v.id" />
                   Obligatoire
                 </label>
                 <select
                   class="md:col-span-1 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] text-slate-300"
                   [(ngModel)]="v.formScope"
-                  [name]="'fs_' + $index"
+                  [name]="'pilot_fs_' + v.id"
                 >
                   <option value="pilot">Par pilote</option>
                   <option value="hr">Par RH</option>
@@ -350,7 +311,7 @@
                   class="md:col-span-1 rounded border border-red-700/60 bg-red-950/20 px-2 py-1 text-[10px] text-red-300 hover:bg-red-900/30"
                   (click)="removePilotVariable(selectedTemplate.currentVersion!.variables.indexOf(v))"
                 >
-                  Suppr.
+                  Supprimer
                 </button>
               </div>
             }
@@ -374,34 +335,43 @@
             Définissez ici les champs saisis par RH au moment de la génération locale. RH a priorité sur Pilote puis Base.
           </p>
           <div class="space-y-2">
-            @for (v of hrVariables(); track v.name + $index) {
+            @for (v of hrVariables(); track v.id) {
               <div class="grid grid-cols-1 gap-2 md:grid-cols-12 md:items-center md:gap-2">
                 <div class="md:col-span-3">
                   <input
                     type="text"
                     class="w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] font-mono text-amber-200"
                     [(ngModel)]="v.name"
-                    [name]="'hr_vn_' + $index"
+                    [name]="'hr_vn_' + v.id"
                     placeholder="Nom technique"
                   />
                 </div>
                 <input
                   type="text"
-                  class="md:col-span-6 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-xs text-slate-200"
+                  class="md:col-span-5 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-xs text-slate-200"
                   [(ngModel)]="v.displayLabel"
-                  [name]="'hr_dl_' + $index"
+                  [name]="'hr_dl_' + v.id"
                   placeholder="Libellé RH"
                 />
                 <label class="md:col-span-2 flex items-center gap-2 text-[11px] text-slate-400">
-                  <input type="checkbox" [(ngModel)]="v.isRequired" [name]="'hr_req_' + $index" />
+                  <input type="checkbox" [(ngModel)]="v.isRequired" [name]="'hr_req_' + v.id" />
                   Obligatoire
                 </label>
+                <select
+                  class="md:col-span-1 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] text-slate-300"
+                  [(ngModel)]="v.formScope"
+                  [name]="'hr_fs_' + v.id"
+                >
+                  <option value="pilot">Par pilote</option>
+                  <option value="hr">Par RH</option>
+                  <option value="db">A partir du DB</option>
+                </select>
                 <button
                   type="button"
                   class="md:col-span-1 rounded border border-red-700/60 bg-red-950/20 px-2 py-1 text-[10px] text-red-300 hover:bg-red-900/30"
                   (click)="removePilotVariable(selectedTemplate.currentVersion!.variables.indexOf(v))"
                 >
-                  Suppr.
+                  Supprimer
                 </button>
               </div>
             }
@@ -414,36 +384,81 @@
             >
               Ajouter un champ RH
             </button>
-            <button
-              type="button"
-              class="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-600 disabled:opacity-50"
-              [disabled]="pilotVarBusy"
-              (click)="savePilotDefinitions()"
-            >
-              @if (pilotVarBusy) {
-                Enregistrement…
-              } @else {
-                Enregistrer les formulaires
-              }
-            </button>
           </div>
         </div>
         <div class="mt-4 space-y-3 rounded-lg border border-emerald-900/40 bg-emerald-950/20 p-3">
           <p class="text-xs font-bold text-slate-300">Champs alimentés par la base de données</p>
           <p class="text-[10px] text-slate-500 leading-relaxed">
-            Ces champs sont remplis automatiquement depuis l’annuaire / les données système et ne doivent pas s’afficher dans les formulaires.
+            Ces champs sont remplis automatiquement depuis l’annuaire / les données système et ne doivent pas s’afficher dans les formulaires pilote / RH.
           </p>
-          @if (dbVariables().length === 0) {
-            <p class="text-[11px] text-slate-500">Aucun champ DB défini pour ce template.</p>
-          } @else {
-            <div class="flex flex-wrap gap-2">
-              @for (v of dbVariables(); track v.name) {
-                <span class="px-2 py-1 bg-emerald-950/40 text-emerald-300 text-[10px] font-mono rounded border border-emerald-800/60">
-                  {{ v.displayLabel || v.name }} ({{ v.name }})
-                </span>
-              }
-            </div>
-          }
+          <div class="space-y-2">
+            @for (v of dbVariables(); track v.id) {
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-12 md:items-center md:gap-2">
+                <div class="md:col-span-3">
+                  <input
+                    type="text"
+                    class="w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] font-mono text-emerald-200"
+                    [(ngModel)]="v.name"
+                    [name]="'db_vn_' + v.id"
+                    placeholder="Nom technique"
+                  />
+                </div>
+                <input
+                  type="text"
+                  class="md:col-span-5 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-xs text-slate-200"
+                  [(ngModel)]="v.displayLabel"
+                  [name]="'db_dl_' + v.id"
+                  placeholder="Libellé (référence DB)"
+                />
+                <label class="md:col-span-2 flex items-center gap-2 text-[11px] text-slate-400">
+                  <input type="checkbox" [(ngModel)]="v.isRequired" [name]="'db_req_' + v.id" />
+                  Obligatoire
+                </label>
+                <select
+                  class="md:col-span-1 w-full rounded border border-navy-700 bg-navy-900 px-2 py-1.5 text-[11px] text-slate-300"
+                  [(ngModel)]="v.formScope"
+                  [name]="'db_fs_' + v.id"
+                >
+                  <option value="pilot">Par pilote</option>
+                  <option value="hr">Par RH</option>
+                  <option value="db">A partir du DB</option>
+                </select>
+                <button
+                  type="button"
+                  class="md:col-span-1 rounded border border-red-700/60 bg-red-950/20 px-2 py-1 text-[10px] text-red-300 hover:bg-red-900/30"
+                  (click)="removePilotVariable(selectedTemplate.currentVersion!.variables.indexOf(v))"
+                >
+                  Supprimer
+                </button>
+              </div>
+            }
+            @if (dbVariables().length === 0) {
+              <p class="text-[11px] text-slate-500">Aucun champ DB défini pour ce template.</p>
+            }
+          </div>
+          <div class="flex flex-wrap justify-end gap-2 pt-1">
+            <button
+              type="button"
+              class="rounded-lg border border-emerald-700/60 bg-navy-900 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-navy-800"
+              (click)="addPilotVariable('db')"
+            >
+              Ajouter un champ DB
+            </button>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap justify-end border-t border-navy-700/50 pt-4">
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="pilotVarBusy"
+            (click)="savePilotDefinitions()"
+          >
+            @if (pilotVarBusy) {
+              Enregistrement…
+            } @else {
+              Enregistrer
+            }
+          </button>
         </div>
       }
     </div>
@@ -468,11 +483,14 @@
           <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
             @if (previewBlobUrl && previewFileName) {
               <a
-                class="rounded border border-slate-500 px-3 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                class="btn-download no-underline"
                 [href]="previewBlobUrl"
                 [attr.download]="previewFileName"
                 (click)="$event.stopPropagation()"
-                >Télécharger</a>
+              >
+                <span aria-hidden="true">⬇</span>
+                <span>Fichier affiché</span>
+              </a>
             }
             <button
               type="button"
@@ -504,7 +522,7 @@
             <div class="space-y-3 p-6 text-center text-sm text-slate-300">
               <p>Aperçu intégré non disponible pour ce type de fichier.</p>
               <p class="text-xs text-slate-500">
-                Utilisez « Télécharger » puis ouvrez le fichier avec Word ou un lecteur PDF.
+                Utilisez « Fichier affiché » pour enregistrer la copie puis ouvrez-la avec Word ou un lecteur PDF.
               </p>
             </div>
           }

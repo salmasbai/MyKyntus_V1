@@ -12,8 +12,6 @@ import { DocumentationNotificationService } from '../../core/services/documentat
 import type {
   DocumentTemplateDetailDto,
   DocumentTemplateListItemDto,
-  InternalEngineAnalysisDto,
-  InternalEnginePlaceholderDto,
   TemplateVariableDto,
 } from '../../shared/models/api.models';
 import { formatDocumentationUxMessage } from '../../shared/utils/documentation-ux-messages';
@@ -27,63 +25,68 @@ import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
   styles: [`
     .template-action-row {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fill, minmax(10.25rem, 1fr));
+      gap: 0.5rem;
       align-items: stretch;
-    }
-
-    @media (min-width: 1536px) {
-      .template-action-row {
-        grid-template-columns: repeat(5, minmax(0, 1fr));
-      }
     }
 
     .template-action-button {
       position: relative;
+      box-sizing: border-box;
       display: inline-flex;
-      min-height: 2.75rem;
       width: 100%;
       min-width: 0;
+      min-height: 2.875rem;
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
-      overflow: hidden;
-      border-radius: 0.75rem;
-      padding: 0.75rem 0.95rem;
-      font-size: 0.875rem;
+      padding: 0.65rem 0.85rem;
+      border-radius: 0.5rem;
+      border: 1px solid transparent;
+      font-size: 0.8125rem;
       font-weight: 600;
-      line-height: 1.1;
-      white-space: nowrap;
-      text-overflow: ellipsis;
+      line-height: 1.3;
+      text-align: center;
+      white-space: normal;
+      word-break: break-word;
       transition:
         transform 160ms ease,
         box-shadow 160ms ease,
         filter 160ms ease,
         opacity 160ms ease,
-        background-color 160ms ease;
+        background-color 160ms ease,
+        border-color 160ms ease;
     }
 
     .template-action-button:hover:not(:disabled) {
       transform: translateY(-1px);
-      box-shadow: 0 10px 18px rgba(15, 23, 42, 0.22);
-      filter: brightness(1.05);
+      box-shadow: 0 8px 16px rgba(15, 23, 42, 0.25);
+      filter: brightness(1.04);
     }
 
     .template-action-button:disabled {
       pointer-events: none;
-      opacity: 0.6;
+      opacity: 0.55;
+    }
+
+    .template-action-button--icon {
+      min-width: 2.875rem;
+      max-width: 3.25rem;
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+
+    .template-action-button--icon .template-action-button__label {
+      gap: 0;
     }
 
     .template-action-button__label {
       display: inline-flex;
-      min-width: 0;
-      max-width: 100%;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      gap: 0.45rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .template-action-button__spinner {
@@ -104,8 +107,6 @@ import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
   `],
 })
 export class TemplatesPageComponent implements OnInit, OnDestroy {
-  readonly uploadPlaceholderHint = 'Contenu source avec placeholders {{nom}} ...';
-
   /** Exemple d’accolades affiché tel quel (éviter {{ … }} dans le HTML, le compilateur Angular les interprète). */
   readonly placeholderSyntaxExample = '{{nom}}';
   templates: DocumentTemplateListItemDto[] = [];
@@ -114,7 +115,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
   error: string | null = null;
   selectedTemplateId: string | null = null;
   lastMessage: string | null = null;
-  newTemplateMode: 'upload' | 'rule' | 'ai' | 'internal' = 'upload';
   uploadFile: File | null = null;
   form = {
     code: '',
@@ -128,8 +128,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
   sampleDataRaw = '{}';
   testRunRendered: string | null = null;
   missingVariables: string[] = [];
-  internalEngineAnalysis: InternalEngineAnalysisDto | null = null;
-  internalEngineBusy = false;
 
   /** Modale prévisualisation (PDF natif, DOCX → HTML via mammoth). */
   previewOpen = false;
@@ -153,30 +151,19 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     private readonly notify: DocumentationNotificationService,
   ) {}
 
-  private debugLog(hypothesisId: string, location: string, message: string, data: Record<string, unknown>): void {
-    fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4e1d33'},body:JSON.stringify({sessionId:'4e1d33',runId:'initial',hypothesisId,location,message,data,timestamp:Date.now()})}).catch(()=>{});
-  }
-
   ngOnInit(): void {
     this.reloadTemplates();
   }
 
-  private reloadTemplates(): void {
+  private reloadTemplates(afterLoaded?: () => void): void {
     this.loading = true;
     this.sub.add(
       this.data.getDocumentTemplates().subscribe({
         next: (rows) => {
-          // #region agent log
-          this.debugLog('H3', 'templates-page.component.ts:79', 'reloadTemplates next', {
-            selectedTemplateId: this.selectedTemplateId,
-            count: rows.length,
-            ids: rows.slice(0, 10).map((row) => row.id),
-            selectedExistsInList: !!this.selectedTemplateId && rows.some((row) => row.id === this.selectedTemplateId),
-          });
-          // #endregion
           this.templates = rows;
           this.loading = false;
           this.error = null;
+          afterLoaded?.();
         },
         error: () => {
           this.templates = [];
@@ -185,6 +172,36 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         },
       }),
     );
+  }
+
+  /** Couleur de la bannière selon le libellé (sans toucher à la logique métier des messages). */
+  get bannerToneComputed(): 'success' | 'error' | 'info' {
+    const raw = this.lastMessage ?? '';
+    if (!raw.trim()) return 'success';
+    const m = raw.toLowerCase();
+    if (
+      m.includes('échec') ||
+      m.includes('impossible') ||
+      m.includes('refus') ||
+      m.includes('introuvable') ||
+      m.includes('bloqué')
+    ) {
+      return 'error';
+    }
+    if (
+      m.includes('obligatoire') ||
+      m.includes('choisissez un fichier') ||
+      m.includes('choisissez un') ||
+      m.includes('activez le modèle') ||
+      m.includes('renseignez') ||
+      m.includes('nom technique') ||
+      m.includes('json de données') ||
+      m.includes('double') ||
+      m.includes('invalide')
+    ) {
+      return 'info';
+    }
+    return 'success';
   }
 
   ngOnDestroy(): void {
@@ -208,7 +225,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.clearTemplateActionLoading(t.id);
           this.lastMessage = `Généré : ${res.fileName} — ${res.storageUri}`;
-          this.notify.showSuccess('Le document a ete genere avec succes.');
+          this.notify.showSuccess('Document généré avec succès.');
           this.reloadTemplates();
         },
         error: (err) => {
@@ -238,200 +255,45 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     }
 
     const documentTypeId = this.form.documentTypeId.trim() || null;
-    const descriptionOpt = this.form.description.trim() || null;
 
-    if (this.newTemplateMode === 'upload') {
-      if (this.uploadFile) {
-        this.creatingTemplate = true;
-        this.sub.add(
-          this.data
-            .createTemplateFromUploadFile({
-              code: effectiveCode,
-              name: this.form.name.trim(),
-              description: descriptionOpt,
-              documentTypeId,
-              file: this.uploadFile,
-              kind: 'dynamic',
-            })
-            .subscribe({
-              next: (res) => {
-                this.creatingTemplate = false;
-                this.lastMessage = `Le modèle « ${res.name} » a été créé avec succès.`;
-                this.notify.showSuccess('Le modele a ete cree avec succes.');
-                this.clearForm();
-                this.reloadTemplates();
-              },
-              error: (err) => {
-                this.creatingTemplate = false;
-                this.lastMessage = this.apiErrorMessage(
-                  err,
-                  "Échec de l'import du modèle. Vérifiez le stockage des fichiers puis réessayez.",
-                );
-                this.notify.showError(this.lastMessage);
-              },
-            }),
-        );
-        return;
-      }
-      if (!this.form.content.trim()) {
-        this.lastMessage = 'Choisissez un fichier ou collez du texte avec placeholders.';
-        return;
-      }
+    if (this.uploadFile) {
       this.creatingTemplate = true;
       this.sub.add(
         this.data
-          .createTemplateFromUpload({
+          .createTemplateFromUploadFile({
             code: effectiveCode,
-            name: this.form.name,
-            description: descriptionOpt,
+            name: this.form.name.trim(),
+            description: null,
             documentTypeId,
-            fileName: this.form.fileName || 'upload.txt',
-            content: this.form.content,
+            file: this.uploadFile,
+            kind: 'dynamic',
           })
           .subscribe({
             next: (res) => {
               this.creatingTemplate = false;
-              this.lastMessage = `Le modèle « ${res.name} » a été créé avec succès.`;
-              this.notify.showSuccess('Le modele a ete cree avec succes.');
+              this.lastMessage = `Le modèle « ${res.name} » a été créé avec succès. Ouvrez le détail pour vérifier les formulaires Pilote / RH.`;
+              this.notify.showSuccess('Modèle créé. Vérifiez les formulaires dans le détail du modèle.');
               this.clearForm();
-              this.reloadTemplates();
+              this.reloadTemplates(() => this.selectTemplate(res.id));
             },
-            error: () => {
+            error: (err) => {
               this.creatingTemplate = false;
-              this.lastMessage = 'Échec création template (texte).';
+              this.lastMessage = this.apiErrorMessage(
+                err,
+                "Échec de l'import du modèle. Vérifiez le stockage des fichiers puis réessayez.",
+              );
               this.notify.showError(this.lastMessage);
             },
           }),
       );
       return;
     }
-
-    if (this.newTemplateMode === 'ai') {
-      if (!this.form.description.trim()) {
-        this.lastMessage = 'La description est obligatoire pour la génération IA.';
-        return;
-      }
-      this.creatingTemplate = true;
-      this.sub.add(
-        this.data
-          .createTemplateFromAi({
-            description: this.form.description.trim(),
-            name: this.form.name.trim(),
-            code: effectiveCode,
-            documentTypeId,
-          })
-          .subscribe({
-            next: (res) => {
-              this.creatingTemplate = false;
-              this.lastMessage = `Le modèle « ${res.name} » a été généré avec succès.`;
-              this.clearForm();
-              this.reloadTemplates();
-            },
-            error: () => {
-              this.creatingTemplate = false;
-              this.lastMessage = 'La génération du modèle a échoué. Réessayez dans un instant.';
-            },
-          }),
-      );
-      return;
-    }
-
-    if (this.newTemplateMode === 'internal') {
-      if (!this.form.content.trim()) {
-        this.lastMessage = 'Le contenu du template est obligatoire pour le moteur interne.';
-        return;
-      }
-      this.creatingTemplate = true;
-      const createAfterAnalysis = (analysis: InternalEngineAnalysisDto) =>
-        this.data
-          .createTemplateFromInternalEngine({
-            code: effectiveCode,
-            name: this.form.name.trim(),
-            description: descriptionOpt,
-            documentTypeId,
-            structuredContent: this.form.content,
-            variables: analysis.variables,
-          })
-          .subscribe({
-            next: (res) => {
-              this.creatingTemplate = false;
-              this.lastMessage = `Le modèle « ${res.name} » a été créé avec succès.`;
-              this.clearForm();
-              this.internalEngineAnalysis = null;
-              this.reloadTemplates();
-            },
-            error: (err) => {
-              this.creatingTemplate = false;
-              this.lastMessage = this.apiErrorMessage(err, 'Échec création via le moteur interne.');
-            },
-          });
-
-      if (this.internalEngineAnalysis?.structuredContent === this.form.content) {
-        this.sub.add(createAfterAnalysis(this.internalEngineAnalysis));
-      } else {
-        this.sub.add(
-          this.data
-            .analyzeInternalEngineTemplate({
-              code: effectiveCode,
-              name: this.form.name.trim(),
-              description: descriptionOpt,
-              documentTypeId,
-              structuredContent: this.form.content,
-            })
-            .subscribe({
-              next: (analysis) => {
-                this.internalEngineAnalysis = analysis;
-                this.sub.add(createAfterAnalysis(analysis));
-              },
-              error: (err) => {
-                this.creatingTemplate = false;
-                this.lastMessage = this.apiErrorMessage(err, 'Échec analyse du moteur interne.');
-              },
-            }),
-        );
-      }
-      return;
-    }
-
-    if (!this.form.description.trim()) {
-      this.lastMessage = 'La description RH est obligatoire.';
-      return;
-    }
-    this.creatingTemplate = true;
-    this.sub.add(
-      this.data
-        .createTemplateRuleBased({
-          code: effectiveCode,
-          name: this.form.name,
-          documentTypeId,
-          description: this.form.description,
-        })
-        .subscribe({
-          next: (res) => {
-            this.creatingTemplate = false;
-            this.lastMessage = `Le modèle « ${res.name} » a été généré avec succès.`;
-            this.clearForm();
-            this.reloadTemplates();
-          },
-          error: () => {
-            this.creatingTemplate = false;
-            this.lastMessage = 'Échec création template par règles.';
-          },
-        }),
-    );
+    this.lastMessage = 'Choisissez un fichier modèle (PDF ou DOCX) via « Importer ».';
   }
 
   selectTemplate(templateId: string, afterLoad?: () => void): void {
     if (this.isTemplateActionLoading(templateId)) return;
     this.setTemplateActionLoading(templateId, 'detail');
-    // #region agent log
-    this.debugLog('H4', 'templates-page.component.ts:248', 'selectTemplate entry', {
-      templateId,
-      previousSelectedTemplateId: this.selectedTemplateId,
-      previousSelectedTemplateCurrentVersion: !!this.selectedTemplate?.currentVersion,
-      previousSelectedTemplateKind: this.selectedTemplate?.kind ?? null,
-    });
-    // #endregion
     this.selectedTemplateId = templateId;
     this.testRunRendered = null;
     this.missingVariables = [];
@@ -439,18 +301,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
       this.data.getDocumentTemplate(templateId).subscribe({
         next: (res) => {
           this.clearTemplateActionLoading(templateId);
-          // #region agent log
-          this.debugLog('H1', 'templates-page.component.ts:259', 'selectTemplate detail loaded', {
-            templateId,
-            responseId: res.id,
-            kind: res.kind ?? null,
-            source: res.source ?? null,
-            hasCurrentVersion: !!res.currentVersion,
-            currentVersionNumber: res.currentVersion?.versionNumber ?? null,
-            variablesCount: res.currentVersion?.variables?.length ?? null,
-            originalAssetUriPresent: !!res.currentVersion?.originalAssetUri,
-          });
-          // #endregion
           this.selectedTemplate = this.normalizeTemplateDetailScopes(res);
           this.sampleDataRaw = this.buildSampleJsonFromVariables(this.selectedTemplate.currentVersion?.variables ?? []);
           window.setTimeout(() => {
@@ -461,15 +311,8 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.clearTemplateActionLoading(templateId);
-          // #region agent log
-          this.debugLog('H2', 'templates-page.component.ts:276', 'selectTemplate detail error', {
-            templateId,
-            status: err?.status ?? null,
-            statusText: err?.statusText ?? null,
-            message: err?.message ?? null,
-          });
-          // #endregion
           this.lastMessage = 'Impossible de charger le détail du template.';
+          this.notify.showError(this.lastMessage);
         },
       }),
     );
@@ -479,6 +322,42 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     if (this.isTemplateActionLoading(t.id)) return;
     this.setTemplateActionLoading(t.id, 'visualize');
     this.openTemplatePreview(t.id, t.name);
+  }
+
+  downloadTemplateSource(t: DocumentTemplateListItemDto): void {
+    if (this.isTemplateActionLoading(t.id)) return;
+    this.setTemplateActionLoading(t.id, 'downloadSource');
+    this.sub.add(
+      this.data.getTemplateSourceFileBlob(t.id).subscribe({
+        next: (resp) => {
+          this.clearTemplateActionLoading(t.id);
+          const blob = resp.body;
+          if (!blob?.size) {
+            this.lastMessage = 'Fichier vide ou introuvable.';
+            this.notify.showError(this.lastMessage);
+            return;
+          }
+          const fn =
+            this.fileNameFromContentDisposition(resp.headers.get('content-disposition')) ??
+            `${(t.name || 'modele').replace(/[/\\?%*:|"<>]/g, '_')}`;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fn;
+          a.rel = 'noopener';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          this.notify.showSuccess('Téléchargement démarré.');
+        },
+        error: (err: HttpErrorResponse) => {
+          this.clearTemplateActionLoading(t.id);
+          this.lastMessage = this.apiErrorMessage(err, 'Échec du téléchargement du modèle.');
+          this.notify.showError(this.lastMessage);
+        },
+      }),
+    );
   }
 
   openSelectedTemplateFile(): void {
@@ -498,7 +377,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
       this.previewBlobUrl = null;
     }
     for (const [templateId, action] of this.templateActionLoading.entries()) {
-      if (action === 'visualize') {
+      if (action === 'visualize' || action === 'downloadSource') {
         this.templateActionLoading.delete(templateId);
       }
     }
@@ -520,6 +399,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
             this.previewOpen = false;
             this.clearTemplateActionLoading(templateId);
             this.lastMessage = 'Fichier vide ou introuvable.';
+            this.notify.showError(this.lastMessage);
             return;
           }
           const headerCt = resp.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
@@ -532,6 +412,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
             this.previewLoading = false;
             this.previewOpen = false;
             this.lastMessage = msg;
+            this.notify.showError(msg);
             this.clearTemplateActionLoading(templateId);
           });
         },
@@ -649,9 +530,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         next: () => {
           this.clearTemplateActionLoading(template.id);
           this.lastMessage = `Template ${template.code} ${template.isActive ? 'désactivé' : 'activé'}.`;
-          this.notify.showSuccess(
-            template.isActive ? 'Le modele a ete desactive.' : 'Le modele a ete active.',
-          );
+          this.notify.showSuccess(template.isActive ? 'Modèle désactivé.' : 'Modèle activé.');
           this.reloadTemplates();
           if (this.selectedTemplateId === template.id) this.selectTemplate(template.id);
         },
@@ -665,37 +544,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
   }
 
   pilotVarBusy = false;
-
-  analyzeInternalEngine(): void {
-    if (this.internalEngineBusy) return;
-    if (!this.form.content.trim()) {
-      this.lastMessage = 'Collez d’abord le contenu du template à analyser.';
-      return;
-    }
-    this.internalEngineBusy = true;
-    this.lastMessage = null;
-    this.sub.add(
-      this.data
-        .analyzeInternalEngineTemplate({
-          code: this.form.code.trim() || null,
-          name: this.form.name.trim() || null,
-          description: this.form.description.trim() || null,
-          documentTypeId: this.form.documentTypeId.trim() || null,
-          structuredContent: this.form.content,
-        })
-        .subscribe({
-          next: (analysis) => {
-            this.internalEngineBusy = false;
-            this.internalEngineAnalysis = analysis;
-            this.lastMessage = `Analyse interne terminée : ${analysis.placeholders.length} placeholder(s) détecté(s).`;
-          },
-          error: (err) => {
-            this.internalEngineBusy = false;
-            this.lastMessage = this.apiErrorMessage(err, 'Analyse interne impossible.');
-          },
-        }),
-    );
-  }
 
   addPilotVariable(formScope: 'pilot' | 'hr' | 'db' = 'pilot'): void {
     const vars = this.selectedTemplate?.currentVersion?.variables;
@@ -749,13 +597,26 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Clé stable pour @for / ngModel : évite les mélanges de lignes quand formScope déplace une variable entre listes. */
+  private ensureTemplateVariableIds(vars: TemplateVariableDto[]): TemplateVariableDto[] {
+    return vars.map((v, i) => {
+      const trimmed = v.id?.trim();
+      if (trimmed) return { ...v, id: trimmed };
+      const n = (v.name ?? '').trim() || `var${i}`;
+      const slug = n.replace(/[^a-zA-Z0-9_-]/g, '_');
+      return { ...v, id: `local-${i}-${slug}` };
+    });
+  }
+
   private normalizeTemplateDetailScopes(detail: DocumentTemplateDetailDto): DocumentTemplateDetailDto {
     if (!detail.currentVersion?.variables?.length) return detail;
     return {
       ...detail,
       currentVersion: {
         ...detail.currentVersion,
-        variables: this.normalizeTemplateVariableScopes(detail.currentVersion.variables),
+        variables: this.ensureTemplateVariableIds(
+          this.normalizeTemplateVariableScopes(detail.currentVersion.variables),
+        ),
       },
     };
   }
@@ -778,7 +639,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     );
   }
 
-  /** Enregistre la définition des formulaires Pilote / RH (version courante). */
+  /** Enregistre la définition des formulaires Pilote / RH / DB (version courante). */
   savePilotDefinitions(): void {
     if (!this.selectedTemplate?.currentVersion?.variables?.length) {
       this.lastMessage = 'Aucune variable à enregistrer.';
@@ -819,12 +680,14 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         next: (res) => {
           this.selectedTemplate = this.normalizeTemplateDetailScopes(res);
           this.pilotVarBusy = false;
-          this.lastMessage = 'Formulaires Pilote / RH enregistrés.';
+          this.lastMessage = 'Formulaires Pilote / RH / DB enregistrés.';
           this.sampleDataRaw = this.buildSampleJsonFromVariables(this.selectedTemplate.currentVersion?.variables ?? []);
+          this.notify.showSuccess('Formulaires enregistrés.');
         },
         error: (err) => {
           this.pilotVarBusy = false;
           this.lastMessage = this.apiErrorMessage(err, 'Échec enregistrement des formulaires.');
+          this.notify.showError(this.lastMessage);
         },
       }),
     );
@@ -835,18 +698,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
     const currentVersion = this.selectedTemplate.currentVersion;
     const content = currentVersion?.structuredContent ?? '';
     const vars: TemplateVariableDto[] = currentVersion?.variables ?? [];
-    // #region agent log
-    this.debugLog('H5', 'templates-page.component.ts:671', 'publishNewVersion request prepared', {
-      templateId: this.selectedTemplate.id,
-      kind: this.selectedTemplate.kind ?? null,
-      hasCurrentVersion: !!currentVersion,
-      currentVersionNumber: currentVersion?.versionNumber ?? null,
-      contentLength: content.length,
-      variablesCount: vars.length,
-      originalAssetUriPresent: !!currentVersion?.originalAssetUri,
-      variableNames: vars.slice(0, 10).map((v) => v.name),
-    });
-    // #endregion
     this.sub.add(
       this.data
         .createTemplateVersion(this.selectedTemplate.id, {
@@ -871,28 +722,11 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
         })
         .subscribe({
           next: (res) => {
-            // #region agent log
-            this.debugLog('H5', 'templates-page.component.ts:696', 'publishNewVersion success', {
-              templateId: this.selectedTemplate?.id ?? null,
-              versionNumber: res.versionNumber,
-            });
-            // #endregion
             this.lastMessage = `Version ${res.versionNumber} publiée.`;
             this.selectTemplate(this.selectedTemplate!.id);
             this.reloadTemplates();
           },
           error: (err) => {
-            // #region agent log
-            this.debugLog('H5', 'templates-page.component.ts:704', 'publishNewVersion error', {
-              templateId: this.selectedTemplate?.id ?? null,
-              status: err?.status ?? null,
-              statusText: err?.statusText ?? null,
-              apiMessage:
-                err?.error && typeof err.error === 'object' && typeof err.error.message === 'string'
-                  ? err.error.message
-                  : null,
-            });
-            // #endregion
             this.lastMessage = this.apiErrorMessage(err, 'Échec publication version.');
           },
         }),
@@ -955,7 +789,7 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
             this.selectedTemplate = null;
           }
           this.lastMessage = `Template supprimé : ${template.code}`;
-          this.notify.showSuccess('Le modele a ete supprime.');
+          this.notify.showSuccess('Modèle supprimé.');
           this.reloadTemplates();
         },
         error: (err) => {
@@ -1021,7 +855,6 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
   private clearForm(): void {
     this.uploadFile = null;
     this.form = { code: '', name: '', documentTypeId: '', fileName: '', content: '', description: '' };
-    this.internalEngineAnalysis = null;
   }
 
   isTemplateActionLoading(templateId: string, action?: TemplateAction): boolean {
@@ -1058,4 +891,4 @@ export class TemplatesPageComponent implements OnInit, OnDestroy {
   }
 }
 
-type TemplateAction = 'detail' | 'visualize' | 'toggle' | 'delete' | 'generate';
+type TemplateAction = 'detail' | 'visualize' | 'downloadSource' | 'toggle' | 'delete' | 'generate';

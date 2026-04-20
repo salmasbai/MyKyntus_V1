@@ -156,6 +156,12 @@ public class GeneratedDocument
     /// <summary>JSON : liste des noms de variables obligatoires vides au moment du brouillon (aide éditeur).</summary>
     public string? RhMissingVariablesJson { get; set; }
 
+    /// <summary>
+    /// JSON : fusion complète des variables au moment de la création du brouillon (identique à <c>PrepareDocumentWorkflowAsync</c> / aperçu),
+    /// afin que le DOCX final et les exports utilisent les mêmes valeurs que l’écran (champs RH non persistés en base inclus).
+    /// </summary>
+    public string? WorkflowVariablesSnapshotJson { get; set; }
+
     public DocumentRequest? DocumentRequest { get; set; }
     public DocumentType? DocumentType { get; set; }
     public DocumentTemplateVersion? TemplateVersion { get; set; }

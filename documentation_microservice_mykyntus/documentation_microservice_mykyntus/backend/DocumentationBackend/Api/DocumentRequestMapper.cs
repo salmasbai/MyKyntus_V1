@@ -31,14 +31,23 @@ internal static class DocumentRequestMapper
         // EmployeeId : personne concernée par la demande (bénéficiaire si renseigné, sinon demandeur).
         var employeeSubjectId = r.BeneficiaryUserId?.ToString() ?? r.RequesterUserId.ToString();
 
-        string? genId = latestGenerated?.Id.ToString();
-        string? genAt = latestGenerated?.CreatedAt.ToString("O");
-        string? docUrl = latestGenerated is null
-            ? null
-            : $"/api/documentation/data/generated-documents/{latestGenerated.Id:D}/file";
+        // Brouillon RH : seuls RH / Admin voient l’identifiant et le statut « généré ». Les autres rôles
+        // gardent la demande « en cours » jusqu’à finalisation (PDF officiel après validation RH).
+        var effectiveLatest = latestGenerated;
+        if (latestGenerated is { Status: GeneratedDocumentStatus.DraftPendingRhReview }
+            && userContext.Role is not (AppRole.Rh or AppRole.Admin))
+        {
+            effectiveLatest = null;
+        }
 
-        // Libellé métier : dès qu’un PDF est lié, le pilote / le RH voient « Generated » même si le statut SQL est resté Approved (legacy).
-        var statusForApi = latestGenerated is not null
+        string? genId = effectiveLatest?.Id.ToString();
+        string? genAt = effectiveLatest?.CreatedAt.ToString("O");
+        string? docUrl = effectiveLatest is null
+            ? null
+            : $"/api/documentation/data/generated-documents/{effectiveLatest.Id:D}/file";
+
+        // Libellé métier : dès qu’un PDF final est lié, le pilote / le RH voient « Generated » même si le statut SQL est resté Approved (legacy).
+        var statusForApi = effectiveLatest is not null
             ? DocumentRequestStatus.Generated.ToString()
             : r.Status.ToString();
 
@@ -63,6 +72,7 @@ internal static class DocumentRequestMapper
             genAt,
             docUrl,
             r.DocumentTemplateId?.ToString("D"),
-            documentTemplateName);
+            documentTemplateName,
+            r.ComplementaryComments);
     }
 }

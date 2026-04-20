@@ -1,9 +1,9 @@
 @if (role$ | async; as role) {
   <div class="space-y-6">
-    <div class="flex items-center justify-between">
+    <div class="doc-page-header">
       <div>
-        <h3 class="text-xl font-bold text-white">Génération de documents</h3>
-        <p class="text-sm text-slate-500">
+        <h3 class="doc-page-title">Génération de documents</h3>
+        <p class="doc-page-desc">
           Collaborateurs et modèles issus de la base (annuaire <span class="font-mono text-slate-400">directory_users</span>,
           modèles <span class="font-mono text-slate-400">document_templates</span>).
         </p>
@@ -25,7 +25,7 @@
             <select
               id="doc-gen-user"
               name="userId"
-              class="w-full bg-navy-800 border border-navy-700 rounded-lg p-2.5 text-sm text-slate-200 outline-none focus:border-blue-500"
+              class="doc-field py-2.5"
               [(ngModel)]="selectedUserId"
               (ngModelChange)="onEmployeeChange()"
               [disabled]="loading || !!loadError"
@@ -68,7 +68,16 @@
                         <app-status-badge [status]="req.status"></app-status-badge>
                       </div>
                       @if (req.reason?.trim()) {
-                        <p class="mt-1 line-clamp-2 text-[10px] text-slate-500">{{ req.reason }}</p>
+                        <p class="mt-1 line-clamp-2 text-[10px] text-slate-500">
+                          <span class="font-semibold text-slate-500">Motif :</span>
+                          {{ req.reason }}
+                        </p>
+                      }
+                      @if (req.complementaryComments?.trim()) {
+                        <p class="mt-0.5 line-clamp-2 text-[10px] text-slate-500">
+                          <span class="font-semibold text-slate-500">Commentaire :</span>
+                          {{ req.complementaryComments }}
+                        </p>
                       }
                     </li>
                   }
@@ -107,7 +116,7 @@
                   (click)="setGenerationMode('ready')"
                   [disabled]="!selectedLinkedRequest"
                 >
-                  Uploader un document déjà prêt
+                  Importer un document déjà prêt
                 </button>
               </div>
             </div>
@@ -161,15 +170,27 @@
           </div>
           <div class="space-y-2">
             <label class="text-xs font-medium text-slate-400" for="doc-gen-date">Date d’effet</label>
-            <input
-              id="doc-gen-date"
-              name="effectiveDate"
-              type="date"
-              class="w-full bg-navy-800 border border-navy-700 rounded-lg p-2.5 text-sm text-slate-200 outline-none focus:border-blue-500"
-              [(ngModel)]="effectiveDate"
-              (ngModelChange)="onTemplateOrDateChanged()"
-              [disabled]="loading || !!loadError || !selectedLinkedRequest"
-            />
+            <div class="doc-date-with-picker">
+              <input
+                #docGenDate
+                id="doc-gen-date"
+                name="effectiveDate"
+                type="date"
+                class="doc-field doc-date-input"
+                [(ngModel)]="effectiveDate"
+                (ngModelChange)="onTemplateOrDateChanged()"
+                [disabled]="loading || !!loadError || !selectedLinkedRequest"
+              />
+              <button
+                type="button"
+                class="doc-date-calendar-btn"
+                title="Ouvrir le calendrier"
+                [disabled]="loading || !!loadError || !selectedLinkedRequest"
+                (click)="openNativeDatePicker(docGenDate, $event)"
+              >
+                <app-doc-icon name="calendar" klass="w-4 h-4"></app-doc-icon>
+              </button>
+            </div>
           </div>
           }
 
@@ -179,7 +200,7 @@
                 Document déjà prêt (upload direct pilote)
               </p>
               <p class="text-[11px] text-slate-500 leading-relaxed">
-                Aucun template requis. Uploadez le fichier final, il sera envoyé au pilote avec traçabilité.
+                Aucun template requis. Importez le fichier final, il sera envoyé au pilote avec traçabilité.
               </p>
               <label class="block text-[11px] text-slate-500">Fichier (PDF, DOCX, …) — stockage local / S3</label>
               <label
@@ -221,7 +242,7 @@
                 @if (busyReadyUpload) {
                   <span>Enregistrement…</span>
                 } @else {
-                  <span>Uploader et envoyer au pilote</span>
+                  <span>Importer et envoyer au pilote</span>
                 }
               </button>
             </div>
@@ -260,6 +281,37 @@
             </div>
           }
 
+          @if (generationMode === 'template' && canGenerate(role) && selectedLinkedRequest) {
+            <div class="space-y-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 p-3">
+              <p class="text-xs font-bold text-emerald-300/95 uppercase tracking-wide">Génération du document</p>
+              <p class="text-[11px] text-slate-500 leading-relaxed">
+                @if (hrVariablesForCurrentTemplate().length > 0) {
+                  Le bouton reste inactif tant que l’aperçu n’est pas prêt
+                  <span class="text-slate-400">et</span>
+                  que les champs RH obligatoires (*) ne sont pas renseignés.
+                } @else {
+                  Actif lorsque l’aperçu (à droite) est prêt — aligné sur le modèle ou le PDF officiel selon le cas.
+                }
+              </p>
+              <button
+                type="button"
+                class="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-900/30 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none"
+                [disabled]="!canFinalizeGenerate(role) || busyGenerate || busyPreview"
+                [attr.title]="generateDocButtonHint(role) || null"
+                (click)="runGenerate(role)"
+              >
+                @if (busyGenerate) {
+                  <span>Génération en cours…</span>
+                } @else {
+                  <span>Générer le document</span>
+                }
+              </button>
+              @if (!canFinalizeGenerate(role) && !busyGenerate && !busyPreview) {
+                <p class="text-[10px] text-amber-400/90 leading-relaxed">{{ generateDocButtonHint(role) }}</p>
+              }
+            </div>
+          }
+
           @if (previewKpi) {
             <div class="rounded-lg border border-navy-700 bg-navy-950/50 p-3 space-y-1">
               <p class="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pré-remplissage (KPI)</p>
@@ -272,7 +324,7 @@
                   <span class="text-amber-400">
                     — {{ previewKpi.missingCount }} manquant(s) ; marqués
                     <span class="font-mono">________</span>
-                    dans l’aperçu PDF.
+                    dans l’aperçu.
                   </span>
                 }
               </p>
@@ -301,12 +353,13 @@
                 <p class="text-emerald-400/90">{{ lastGenerateMessage }}</p>
               } @else {
                 <p class="text-slate-400">
-                  PDF déjà disponible pour la demande sélectionnée — aperçu à droite. Formats : PDF, DOCX, HTML, TXT.
+                  PDF déjà disponible pour la demande sélectionnée — aperçu à droite. Téléchargement : PDF (.pdf) ou DOCX (.docx).
                 </p>
               }
               <div class="flex flex-wrap items-center gap-2">
                 <app-generated-document-format-menu
                   [generatedDocumentId]="downloadMenuDocumentId"
+                  [fileNameBase]="exportFileHintForPreviewModal"
                   appearance="standard"
                 />
                 <button
@@ -340,7 +393,7 @@
 
       <div class="card-navy p-6 flex flex-col border border-navy-800 min-h-[400px]">
         <div class="flex items-center justify-between gap-2 mb-3 shrink-0">
-          <h4 class="text-sm font-bold text-white uppercase tracking-wider">Aperçu PDF (même rendu que le final)</h4>
+          <h4 class="text-sm font-bold text-white uppercase tracking-wider">Aperçu document (même source que le final)</h4>
           <div class="flex items-center gap-2">
             @if (generationMode === 'template' && canGenerate(role)) {
               <button
@@ -361,22 +414,38 @@
               </button>
             }
             @if (canDownloadAiDirectExports) {
-              <button
-                type="button"
-                class="py-1.5 px-2.5 rounded-lg text-xs font-semibold border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
-                [disabled]="busyPreview"
-                (click)="downloadAiDirectExport('pdf')"
+              <details
+                class="doc-download-details relative z-[55]"
+                [class.pointer-events-none]="busyPreview"
+                [class.opacity-50]="busyPreview"
               >
-                Télécharger PDF
-              </button>
-              <button
-                type="button"
-                class="py-1.5 px-2.5 rounded-lg text-xs font-semibold border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50"
-                [disabled]="busyPreview"
-                (click)="downloadAiDirectExport('docx')"
-              >
-                Télécharger Word
-              </button>
+                <summary
+                  class="btn-download !text-xs !px-2.5 !py-1.5 list-none [&::-webkit-details-marker]:hidden"
+                >
+                  <span aria-hidden="true">⬇</span>
+                  <span>Télécharger</span>
+                  <span class="opacity-90 text-xs" aria-hidden="true">▾</span>
+                </summary>
+                <div class="doc-download-dropdown absolute right-0 mt-2 py-1 z-[60]" role="menu">
+                  <p class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Télécharger en</p>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    [disabled]="busyPreview"
+                    (click)="downloadAiDirectExport('pdf')"
+                  >
+                    PDF (.pdf)
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    [disabled]="busyPreview"
+                    (click)="downloadAiDirectExport('docx')"
+                  >
+                    DOCX (.docx)
+                  </button>
+                </div>
+              </details>
               <button
                 type="button"
                 class="py-1.5 px-2.5 rounded-lg text-xs font-semibold border border-slate-500/40 text-slate-300 hover:bg-slate-500/10 disabled:opacity-50"
@@ -389,6 +458,7 @@
             @if (downloadMenuDocumentId?.trim()) {
               <app-generated-document-format-menu
                 [generatedDocumentId]="downloadMenuDocumentId"
+                [fileNameBase]="exportFileHintForPreviewModal"
                 appearance="standard"
               />
             }
@@ -400,46 +470,49 @@
             <div class="empty-preview">
               <div>
                 <p class="font-semibold text-slate-300 mb-1">Étape 2 — Génération du document officiel…</p>
-                <p class="text-sm">Le PDF affiché ensuite sera strictement le même fichier que celui enregistré.</p>
+                <p class="text-sm">Le fichier affiché ensuite sera strictement le même que celui enregistré (Word ou PDF selon le modèle).</p>
               </div>
             </div>
-          } @else if (embedPreviewKind === 'pdf' && documentUrl) {
+          } @else if (activeRightColumnPreviewKind === 'pdf' && documentUrl) {
             <iframe
               class="pdf-preview flex-1"
-              title="Aperçu PDF — rendu identique au document final"
+              title="Aperçu du document final (PDF ou Word selon le cas)"
               [src]="documentUrl | safeUrl"
             ></iframe>
             <p class="text-[11px] text-slate-500 mt-3">
               @if (previewReady && canDownloadAiDirectExports) {
                 Aperçu temporaire disponible.
               } @else if (previewReady && !downloadMenuDocumentId) {
-                Aperçu temporaire (non enregistré). Validez avec l’étape 2 pour produire le document officiel et activer les
-                téléchargements multi-formats.
+                Aperçu temporaire (non enregistré). Validez avec l’étape 2 pour produire le document officiel et activer le
+                téléchargement PDF (.pdf) ou DOCX (.docx).
               } @else {
-                Document officiel — téléchargements PDF, DOCX, HTML ou TXT via « Télécharger ».
+                Document officiel — téléchargement PDF (.pdf) ou DOCX (.docx) via « Télécharger ».
               }
             </p>
-          } @else if (embedPreviewKind === 'docx' && embedPreviewHtml) {
+          } @else if (activeRightColumnPreviewKind === 'docx' && activeRightColumnPreviewHtml) {
             <div class="flex-1 overflow-auto rounded border border-navy-800 bg-white p-6 text-left text-sm text-slate-900 shadow-inner [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mb-2 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_td]:border [&_td]:border-slate-300 [&_td]:p-1.5 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-1.5 [&_th]:text-left [&_th]:font-semibold [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-6">
-              <div [innerHTML]="embedPreviewHtml"></div>
+              <div [innerHTML]="activeRightColumnPreviewHtml"></div>
             </div>
-            <p class="text-[11px] text-slate-500 mt-3">Aperçu DOCX affiché en HTML. Le téléchargement conserve le fichier d'origine.</p>
-          } @else if (embedPreviewKind === 'html' && embedPreviewHtml) {
+            <p class="text-[11px] text-slate-500 mt-3">
+              Aperçu basé sur le fichier Word du modèle (mise en page conservée dans la mesure du navigateur). Le téléchargement
+              après génération conserve le format officiel.
+            </p>
+          } @else if (activeRightColumnPreviewKind === 'html' && activeRightColumnPreviewHtml) {
             <div class="flex-1 overflow-auto rounded border border-navy-800 bg-white p-6 text-left text-sm text-slate-900 shadow-inner">
-              <div [innerHTML]="embedPreviewHtml"></div>
+              <div [innerHTML]="activeRightColumnPreviewHtml"></div>
             </div>
             <p class="text-[11px] text-slate-500 mt-3">Aperçu HTML intégré.</p>
-          } @else if (embedPreviewKind === 'text' && embedPreviewText) {
+          } @else if (activeRightColumnPreviewKind === 'text' && embedPreviewText) {
             <pre class="flex-1 overflow-auto whitespace-pre-wrap rounded border border-navy-800 bg-slate-950 p-4 text-xs text-slate-200">{{ embedPreviewText }}</pre>
             <p class="text-[11px] text-slate-500 mt-3">Aperçu texte intégré.</p>
           } @else if (busyPreview) {
             <div class="empty-preview">
-              <p class="font-semibold text-slate-300 mb-1">Étape 1 — Préparation du PDF…</p>
-              <p class="text-sm text-slate-500">Génération de l’aperçu (aucune sauvegarde).</p>
+              <p class="font-semibold text-slate-300 mb-1">Étape 1 — Préparation de l’aperçu…</p>
+              <p class="text-sm text-slate-500">Rendu sans enregistrement (plus rapide pour les modèles Word d’origine).</p>
             </div>
           } @else if (embedDocumentId?.trim()) {
             @if (embedPdfLoading) {
-              <div class="empty-preview">Chargement du PDF officiel…</div>
+              <div class="empty-preview">Chargement du document officiel…</div>
             } @else if (embedPdfError) {
               <div class="empty-preview" [ngClass]="isEmbeddedPreviewNonPdf ? 'text-slate-400' : 'text-red-400'">
                 {{ embedPdfError }}
@@ -452,8 +525,8 @@
               @if (generationMode === 'template' && selectedUserId && selectedTemplateId && selectedTemplate(); as st) {
                 @if ((st.kind ?? 'dynamic').toLowerCase() !== 'static') {
                   <p class="text-sm text-slate-400 mb-2">
-                    L’aperçu PDF est lancé automatiquement dès que le collaborateur, le modèle dynamique et la date d’effet
-                    sont choisis.
+                    L’aperçu est lancé automatiquement dès que le collaborateur, le modèle dynamique et la date d’effet sont
+                    choisis (Word d’origine ou PDF selon le modèle).
                   </p>
                 } @else {
                   <p class="text-sm text-slate-400 mb-2">
@@ -495,8 +568,22 @@
           }
           @if (rhInlineEditorMode === 'preview') {
             <div class="space-y-2">
-              <label class="text-xs font-medium text-slate-400">Aperçu du document (rendu édition)</label>
-              <div class="rh-document-paper" [innerHTML]="rhInlineEditorSavedHtml || rhInlineEditorHtml"></div>
+              <label class="text-xs font-medium text-slate-400">Aperçu du document (même rendu que la colonne de droite)</label>
+              @if (rhDraftPanelPreviewKind === 'pdf' && rhDraftPanelPdfUrl) {
+                <iframe
+                  class="pdf-preview min-h-[420px] w-full flex-1 rounded border border-navy-800"
+                  title="Aperçu PDF brouillon RH"
+                  [src]="rhDraftPanelPdfUrl | safeUrl"
+                ></iframe>
+              } @else if (rhDraftPanelPreviewKind === 'docx' && rhDraftPanelPreviewHtml) {
+                <div
+                  class="min-h-[320px] flex-1 overflow-auto rounded border border-navy-800 bg-white p-6 text-left text-sm text-slate-900 shadow-inner [&_h1]:mb-3 [&_h1]:text-xl [&_h1]:font-bold [&_h2]:mb-2 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mb-2 [&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_td]:border [&_td]:border-slate-300 [&_td]:p-1.5 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:p-1.5 [&_th]:text-left [&_th]:font-semibold [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-6"
+                >
+                  <div [innerHTML]="rhDraftPanelPreviewHtml"></div>
+                </div>
+              } @else {
+                <div class="rh-document-paper" [innerHTML]="rhInlineEditorSavedHtml || rhInlineEditorHtml"></div>
+              }
             </div>
             <div class="sticky bottom-2 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-navy-700 bg-navy-900/95 p-2">
               <button
@@ -530,7 +617,7 @@
                 <ckeditor
                   [editor]="ckEditor"
                   [config]="ckEditorConfig"
-                  [data]="rhInlineEditorHtml"
+                  [data]="rhInlineEditorCkData"
                   (change)="onCkEditorChange($event)"
                   (ready)="onCkEditorReady($event)"
                 ></ckeditor>
@@ -563,7 +650,7 @@
                 [disabled]="busyRhEditorSave || busyRhEditorFinalize"
                 (click)="saveRhInlineEditor()"
               >
-                Enregistrer les modifications
+                Enregistrer
               </button>
               <button
                 type="button"
@@ -588,6 +675,7 @@
       title="Document généré"
       [subtitle]="previewModalSubtitle"
       [generatedDocumentId]="downloadMenuDocumentId"
+      [exportFileNameBase]="exportFileHintForPreviewModal"
       (closed)="closeLastGeneratedPreview()"
     />
   </div>

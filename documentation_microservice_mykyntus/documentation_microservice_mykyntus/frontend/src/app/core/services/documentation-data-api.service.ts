@@ -632,12 +632,11 @@ export class DocumentationDataApiService {
   }
 
   /**
-   * Export multi-format : <c>GET …/documents/{id}/download?format=</c>
-   * (PDF = fichier stocké ; DOCX / HTML / TXT = génération à la demande).
+   * Export : <c>GET …/documents/{id}/download?format=</c> — uniquement <c>pdf</c> ou <c>docx</c>.
    */
   exportGeneratedDocument(
     generatedDocumentId: string,
-    format: 'pdf' | 'docx' | 'txt' | 'html',
+    format: 'pdf' | 'docx',
   ): Observable<HttpResponse<Blob>> {
     const params = new HttpParams().set('format', format);
     return this.http.get(`${this.dataRoot}/documents/${encodeURIComponent(generatedDocumentId)}/download`, {
@@ -651,7 +650,7 @@ export class DocumentationDataApiService {
   /** Même logique que <c>exportGeneratedDocument</c> pour une route alignée sur l’ID de demande. */
   downloadDocumentRequestExport(
     requestId: string,
-    format: 'pdf' | 'docx' | 'txt' | 'html',
+    format: 'pdf' | 'docx',
   ): Observable<HttpResponse<Blob>> {
     const params = new HttpParams().set('format', format);
     return this.http.get(`${this.dataRoot}/document-requests/${encodeURIComponent(requestId)}/download`, {

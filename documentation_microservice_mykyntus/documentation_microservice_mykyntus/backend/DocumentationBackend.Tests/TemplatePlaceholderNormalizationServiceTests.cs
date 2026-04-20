@@ -1,11 +1,16 @@
+using DocumentationBackend.Configuration;
 using DocumentationBackend.Services;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace DocumentationBackend.Tests;
 
 public sealed class TemplatePlaceholderNormalizationServiceTests
 {
-    private readonly TemplatePlaceholderNormalizationService _service = new();
+    private static IRibValidationService CreateRib() =>
+        new RibValidationService(Options.Create(new RibValidationOptions()));
+
+    private readonly TemplatePlaceholderNormalizationService _service = new(CreateRib());
 
     [Fact]
     public void NormalizeKey_removes_accents_spaces_and_special_chars()
@@ -33,7 +38,7 @@ confirme le salaire (salaire-net) et le prénom {{prenom}}.
     [Fact]
     public void RenderContent_replaces_human_placeholders_and_curly_placeholders()
     {
-        var engine = new TemplateEngineService(_service);
+        var engine = new TemplateEngineService(_service, CreateRib());
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["nom_employe"] = "Dupont",

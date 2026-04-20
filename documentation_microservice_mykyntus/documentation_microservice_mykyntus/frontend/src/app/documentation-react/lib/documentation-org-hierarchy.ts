@@ -44,9 +44,6 @@ export function drillSelectOptions(
   coaches: { value: string; label: string }[];
   pilots: { value: string; label: string }[];
 } {
-  // #region agent log
-  fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'pre-fix',hypothesisId:'H1-H4',location:'documentation-org-hierarchy.ts:47',message:'drillSelectOptions entry',data:{role,usersCount:users.length,viewerUserIdPresent:!!viewerUserId,drill},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   const toOption = (user: DirectoryUserDto) => ({ value: user.id, label: displayDirectoryUserLabel(user) });
   const managers =
     role === 'RP'
@@ -67,9 +64,6 @@ export function drillSelectOptions(
           ? listPilotesUnderCoach(users, pilotSourceCoachId).map(toOption)
           : []
         : [];
-  // #region agent log
-  fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'pre-fix',hypothesisId:'H4',location:'documentation-org-hierarchy.ts:67',message:'drillSelectOptions output',data:{role,managers:managers.length,coaches:coaches.length,pilots:pilots.length,managerId:drill.managerId??null,coachId:drill.coachId??null},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   return { managers, coaches, pilots };
 }
 
@@ -79,9 +73,6 @@ export function visibleEmployeeIdsForRole(
   users: DirectoryUserDto[],
   drill: HierarchyDrillSelection = {},
 ): Set<string> | null {
-  // #region agent log
-  fetch('http://127.0.0.1:7721/ingest/64a12fe4-8b14-42fa-b884-e01871ac05cf',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bd69fa'},body:JSON.stringify({sessionId:'bd69fa',runId:'pre-fix',hypothesisId:'H2-H3-H4',location:'documentation-org-hierarchy.ts:80',message:'visibleEmployeeIdsForRole entry',data:{role,viewerId:viewer?.id??null,usersCount:users.length,drill},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   if (role === 'RH' || role === 'Admin' || role === 'Audit') {
     return null;
   }

@@ -21,6 +21,8 @@ export class GeneratedDocumentPreviewModalComponent implements OnChanges, OnDest
   @Input() subtitle: string | null = null;
   /** Identifiant du document généré (PDF stocké + export). */
   @Input() generatedDocumentId: string | null = null;
+  /** Base de nom de fichier pour les exports (sans extension). */
+  @Input() exportFileNameBase: string | null = null;
 
   @Output() closed = new EventEmitter<void>();
 

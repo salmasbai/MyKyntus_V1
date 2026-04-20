@@ -17,32 +17,6 @@ public sealed class AiApiKeysAdminController(
     IDocumentationTenantAccessor tenantAccessor,
     ILogger<AiApiKeysAdminController> logger) : ControllerBase
 {
-    private const string DebugLogPath = @"C:\Users\Pc\Desktop\MYKYNTUS_1\documentation_microservice_mykyntus\debug-4e1d33.log";
-
-    private static void DebugLog(string hypothesisId, string location, string message, object data)
-    {
-        try
-        {
-            #region agent log
-            var line = JsonSerializer.Serialize(new
-            {
-                sessionId = "4e1d33",
-                runId = "initial",
-                hypothesisId,
-                location,
-                message,
-                data,
-                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            });
-            System.IO.File.AppendAllText(DebugLogPath, line + Environment.NewLine);
-            #endregion
-        }
-        catch
-        {
-            // Ignore debug logging failures.
-        }
-    }
-
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<AiApiKeyListItemResponse>>> List(CancellationToken ct)
     {
@@ -52,15 +26,11 @@ public sealed class AiApiKeysAdminController(
             .OrderByDescending(k => k.CreatedAt)
             .ToListAsync(ct)
             .ConfigureAwait(false);
-        #region agent log
-        DebugLog("H1", "AiApiKeysAdminController.List", "list ai keys", new
-        {
-            tenant = tenantAccessor.ResolvedTenantId,
-            total = rows.Count,
-            activeCount = rows.Count(k => k.IsActive),
-            providers = rows.Select(k => k.Provider).ToArray(),
-        });
-        #endregion
+        logger.LogDebug(
+            "List AI keys tenant={Tenant} total={Total} active={Active}",
+            tenantAccessor.ResolvedTenantId,
+            rows.Count,
+            rows.Count(k => k.IsActive));
         return Ok(rows.Select(MapListItem).ToList());
     }
 
@@ -77,17 +47,12 @@ public sealed class AiApiKeysAdminController(
 
         var tenant = tenantAccessor.ResolvedTenantId;
         var beforeRows = await db.AiApiKeys.AsNoTracking().OrderByDescending(k => k.CreatedAt).ToListAsync(ct).ConfigureAwait(false);
-        #region agent log
-        DebugLog("H2", "AiApiKeysAdminController.Create:before", "create ai key request", new
-        {
+        logger.LogDebug(
+            "Create AI key before tenant={Tenant} provider={Provider} setActive={SetActive} beforeTotal={Total}",
             tenant,
             provider,
-            setActive = body.SetActive,
-            labelPresent = !string.IsNullOrWhiteSpace(body.Label),
-            beforeTotal = beforeRows.Count,
-            beforeActiveCount = beforeRows.Count(k => k.IsActive),
-        });
-        #endregion
+            body.SetActive,
+            beforeRows.Count);
         if (body.SetActive)
         {
             var actives = await db.AiApiKeys.Where(k => k.IsActive).ToListAsync(ct).ConfigureAwait(false);
@@ -108,18 +73,12 @@ public sealed class AiApiKeysAdminController(
         db.AiApiKeys.Add(entity);
         await db.SaveChangesAsync(ct).ConfigureAwait(false);
         var afterRows = await db.AiApiKeys.AsNoTracking().OrderByDescending(k => k.CreatedAt).ToListAsync(ct).ConfigureAwait(false);
-        #region agent log
-        DebugLog("H2", "AiApiKeysAdminController.Create:after", "create ai key saved", new
-        {
+        logger.LogInformation(
+            "AI API key created id={KeyId} tenant={TenantId} active={IsActive} afterTotal={Total}",
+            entity.Id,
             tenant,
-            createdId = entity.Id,
-            provider = entity.Provider,
-            isActive = entity.IsActive,
-            afterTotal = afterRows.Count,
-            afterActiveCount = afterRows.Count(k => k.IsActive),
-        });
-        #endregion
-        logger.LogInformation("AI API key created id={KeyId} tenant={TenantId} active={IsActive}", entity.Id, tenant, entity.IsActive);
+            entity.IsActive,
+            afterRows.Count);
         return Ok(MapListItem(entity));
     }
 

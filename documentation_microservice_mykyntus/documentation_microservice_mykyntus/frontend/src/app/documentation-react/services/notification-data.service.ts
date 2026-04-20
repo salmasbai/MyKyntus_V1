@@ -5,6 +5,10 @@ import { DocumentationIdentityService } from '../../core/services/documentation-
 import type { AuditLogDto, DocumentRequestDto } from '../../shared/models/api.models';
 import type { NotificationItemUi } from '../models/notification-item.model';
 import { DocumentationApiService } from './documentation-api.service';
+import {
+  cleanDocumentRequestTypeLabel,
+  pilotDisplayNameFromEmployeeName,
+} from '../lib/documentation-request-labels';
 
 const READ_STORAGE_KEY = 'documentation-notifications-read-ids';
 
@@ -67,11 +71,11 @@ function buildUiNotification(
 }
 
 function mapRhPendingRequestToUi(r: DocumentRequestDto, read: boolean): NotificationItemUi {
-  const typeLabel = (r.type ?? '').trim() || 'Document';
-  const employee = (r.employeeName ?? '').trim();
+  const typeLabel = cleanDocumentRequestTypeLabel(r.type);
+  const pilot = pilotDisplayNameFromEmployeeName(r.employeeName, '');
   const reference = (r.internalId ?? '').trim();
   const description = [
-    employee ? `${typeLabel} demandé pour ${employee}.` : `${typeLabel} demandé.`,
+    pilot ? `${typeLabel} — demande de ${pilot}.` : `${typeLabel}.`,
     reference ? `Référence ${reference}.` : '',
   ]
     .filter(Boolean)
@@ -92,7 +96,7 @@ function mapRhPendingRequestToUi(r: DocumentRequestDto, read: boolean): Notifica
 
 function mapPilotRequestToUi(r: DocumentRequestDto, read: boolean): NotificationItemUi {
   const status = normalizeStatus(r.status);
-  const typeLabel = (r.type ?? '').trim() || 'Votre document';
+  const typeLabel = cleanDocumentRequestTypeLabel(r.type) || 'Votre document';
   const occurredAt = status === 'generated' ? (r.generatedAt ?? r.decidedAt ?? r.requestDate) : (r.decidedAt ?? r.requestDate);
   const reason = (r.rejectionReason ?? '').trim();
 

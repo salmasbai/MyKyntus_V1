@@ -48,8 +48,11 @@ builder.Services.AddScoped<DocumentationUserContext>();
 builder.Services.AddScoped<IDocumentationTenantAccessor, DocumentationTenantAccessor>();
 builder.Services.AddScoped<DocumentationWorkflowService>();
 builder.Services.AddScoped<AiDirectDocumentFillOrchestrator>();
-builder.Services.AddSingleton<ITemplateEngineService, TemplateEngineService>();
+builder.Services.Configure<RibValidationOptions>(
+    builder.Configuration.GetSection(RibValidationOptions.SectionName));
+builder.Services.AddSingleton<IRibValidationService, RibValidationService>();
 builder.Services.AddSingleton<ITemplatePlaceholderNormalizationService, TemplatePlaceholderNormalizationService>();
+builder.Services.AddSingleton<ITemplateEngineService, TemplateEngineService>();
 builder.Services.AddSingleton<IOriginalDocxTemplateRenderService, OriginalDocxTemplateRenderService>();
 builder.Services.AddSingleton<IPdfExportService, PdfExportService>();
 

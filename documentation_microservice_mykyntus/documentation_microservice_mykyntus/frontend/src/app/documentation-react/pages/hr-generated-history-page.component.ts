@@ -6,6 +6,7 @@ import { Subscription } from 'rxjs';
 import { DocumentationIdentityService } from '../../core/services/documentation-identity.service';
 import type { DocumentRequestDto } from '../../shared/models/api.models';
 import { switchMapOnDocumentationContext } from '../lib/documentation-context-refresh';
+import { generatedDocumentDisplayLabel, generatedDocumentExportBaseName } from '../lib/documentation-dto-mappers';
 import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
 import { GeneratedDocumentFormatMenuComponent } from '../components/generated-document-format-menu/generated-document-format-menu.component';
 import { GeneratedDocumentPreviewModalComponent } from '../components/generated-document-preview-modal/generated-document-preview-modal.component';
@@ -38,6 +39,7 @@ export class HrGeneratedHistoryPageComponent implements OnInit, OnDestroy {
   previewGeneratedId: string | null = null;
   previewTitle = '';
   previewSubtitle: string | null = null;
+  previewExportFileNameBase: string | null = null;
 
   private sub = new Subscription();
 
@@ -139,13 +141,47 @@ export class HrGeneratedHistoryPageComponent implements OnInit, OnDestroy {
     const id = r.generatedDocumentId?.trim();
     if (!id) return;
     this.previewGeneratedId = id;
-    this.previewTitle = 'Document généré';
-    this.previewSubtitle = `${r.type ?? '—'} · ${r.employeeName ?? ''} · ${r.id}`.trim();
+    this.previewTitle = generatedDocumentDisplayLabel({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
+    this.previewSubtitle = r.id;
+    this.previewExportFileNameBase = generatedDocumentExportBaseName({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
     this.previewOpen = true;
   }
 
   closePreview(): void {
     this.previewOpen = false;
     this.previewGeneratedId = null;
+    this.previewExportFileNameBase = null;
+  }
+
+  exportFileNameHint(r: DocumentRequestDto): string | null {
+    if (!r.generatedDocumentId?.trim()) return null;
+    return generatedDocumentExportBaseName({
+      employeeName: r.employeeName,
+      type: r.type,
+      generatedAt: r.generatedAt,
+      requestDate: r.requestDate,
+    });
+  }
+
+  openNativeDatePicker(input: HTMLInputElement, ev?: Event): void {
+    ev?.preventDefault();
+    ev?.stopPropagation();
+    const w = input as unknown as { showPicker?: () => void | Promise<unknown> };
+    const r = w.showPicker?.();
+    if (r && typeof (r as Promise<unknown>).then === 'function') {
+      void (r as Promise<unknown>).catch(() => input.focus());
+    } else {
+      input.focus();
+    }
   }
 }

@@ -15,7 +15,7 @@
       <table class="w-full text-left border-collapse">
         <thead>
           <tr class="bg-navy-800/50 border-b border-navy-800">
-            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Collaborateur</th>
+            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pilote</th>
             <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Document</th>
             <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date</th>
             <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
@@ -39,7 +39,7 @@
                   <div
                     class="w-8 h-8 rounded-full bg-navy-800 flex items-center justify-center text-xs font-bold text-blue-400 border border-navy-700"
                   >
-                    {{ initials(req.employeeName) }}
+                    {{ initials(employeeDisplayName(req)) }}
                   </div>
                   <div>
                     <p class="text-sm font-semibold text-slate-200">{{ employeeDisplayName(req) }}</p>
@@ -53,8 +53,24 @@
               <td class="px-6 py-4">
                 <app-status-badge [status]="req.status"></app-status-badge>
               </td>
-              <td class="px-6 py-4 text-right">
+              <td class="px-6 py-4 text-right align-top">
                 <div class="flex flex-col items-end gap-2">
+                  @if (req.reason?.trim() || req.complementaryComments?.trim()) {
+                    <div
+                      class="w-full max-w-md rounded-lg border border-blue-900/35 bg-blue-950/25 p-2.5 text-left text-[11px] leading-snug text-slate-300"
+                    >
+                      @if (req.reason?.trim()) {
+                        <p class="font-semibold text-slate-400">Motif de la demande</p>
+                        <p class="mt-0.5 whitespace-pre-wrap text-slate-200">{{ req.reason!.trim() }}</p>
+                      }
+                      @if (req.complementaryComments?.trim()) {
+                        <p [class]="req.reason?.trim() ? 'mt-2 font-semibold text-slate-400' : 'font-semibold text-slate-400'">
+                          Commentaires complémentaires (pilote)
+                        </p>
+                        <p class="mt-0.5 whitespace-pre-wrap text-slate-200">{{ req.complementaryComments!.trim() }}</p>
+                      }
+                    </div>
+                  }
                   <div class="flex flex-wrap items-center justify-end gap-2">
                     @if (allowed(req, 'validate')) {
                       <button

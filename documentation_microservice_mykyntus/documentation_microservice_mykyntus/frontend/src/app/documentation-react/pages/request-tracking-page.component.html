@@ -14,8 +14,9 @@
     <p class="text-red-400 text-sm">{{ error }}</p>
   }
 
-  <div class="card-navy overflow-hidden">
-    <table class="w-full text-left border-collapse">
+  <div class="card-navy">
+    <div class="overflow-x-auto">
+    <table class="w-full text-left border-collapse min-w-[640px]">
       <thead>
         <tr class="bg-navy-800/50 border-b border-navy-800">
           <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">ID</th>
@@ -53,7 +54,7 @@
                 <p class="text-[10px] text-red-400 mt-1">Motif de rejet : {{ req.rejectionReason }}</p>
               }
             </td>
-            <td class="px-6 py-4 text-right min-w-[11rem] whitespace-nowrap">
+            <td class="relative overflow-visible px-6 py-4 text-right min-w-[11rem] whitespace-nowrap">
               @if (hasDocument(req)) {
                 <div class="flex flex-nowrap justify-end items-center gap-2">
                   <button
@@ -66,6 +67,7 @@
                   </button>
                   <app-generated-document-format-menu
                     [generatedDocumentId]="req.generatedDocumentId ?? null"
+                    [fileNameBase]="exportFileNameHint(req)"
                     appearance="standard"
                   />
                 </div>
@@ -77,6 +79,7 @@
         }
       </tbody>
     </table>
+    </div>
   </div>
 
   <app-generated-document-preview-modal
@@ -84,6 +87,7 @@
     [title]="previewTitle"
     [subtitle]="previewSubtitle"
     [generatedDocumentId]="previewGeneratedId"
+    [exportFileNameBase]="previewExportFileNameBase"
     (closed)="closePreview()"
   />
 </div>

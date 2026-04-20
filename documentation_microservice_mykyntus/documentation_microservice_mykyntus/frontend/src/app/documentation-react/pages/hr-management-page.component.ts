@@ -15,6 +15,10 @@ import { DocumentationNavigationService } from '../services/documentation-naviga
 import { DocIconComponent } from '../components/doc-icon/doc-icon.component';
 import { StatusBadgeComponent } from '../components/status-badge/status-badge.component';
 import { formatDocumentationUxMessage } from '../../shared/utils/documentation-ux-messages';
+import {
+  cleanDocumentRequestTypeLabel,
+  pilotDisplayNameFromEmployeeName,
+} from '../lib/documentation-request-labels';
 
 @Component({
   standalone: true,
@@ -106,16 +110,11 @@ export class HrManagementPageComponent implements OnInit, OnDestroy {
   }
 
   employeeDisplayName(req: DocumentRequestDto): string {
-    return req.employeeName?.trim() || 'Collaborateur';
+    return pilotDisplayNameFromEmployeeName(req.employeeName);
   }
 
   requestDocumentType(req: DocumentRequestDto): string {
-    const raw = (req.type?.trim() || '').replace(/\s+/g, ' ');
-    if (!raw) return 'Document';
-    return raw
-      .replace(/\s*\(mod[eè]le.*?\)/gi, '')
-      .replace(/\s*[-:]\s*mod[eè]le.*$/gi, '')
-      .trim();
+    return cleanDocumentRequestTypeLabel(req.type);
   }
 
   allowed(req: DocumentRequestDto, action: string): boolean {

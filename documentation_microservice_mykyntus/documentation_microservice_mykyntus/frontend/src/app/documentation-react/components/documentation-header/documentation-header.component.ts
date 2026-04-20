@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, Input } from '@angular/core';
+import { Component, ElementRef, HostListener, Input, ViewChild } from '@angular/core';
 import { map, startWith } from 'rxjs';
 
 import type { DirectoryUserDto } from '../../../shared/models/api.models';
@@ -17,6 +17,8 @@ import { DocIconComponent } from '../doc-icon/doc-icon.component';
 })
 export class DocumentationHeaderComponent {
   @Input({ required: true }) title!: string;
+
+  @ViewChild('notifRoot', { static: false }) notifRoot?: ElementRef<HTMLElement>;
 
   notificationOpen = false;
 
@@ -58,6 +60,16 @@ export class DocumentationHeaderComponent {
 
   toggleNotifications(): void {
     this.notificationOpen = !this.notificationOpen;
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    if (!this.notificationOpen) return;
+    const root = this.notifRoot?.nativeElement;
+    if (!root) return;
+    const target = event.target as Node | null;
+    if (target && root.contains(target)) return;
+    this.notificationOpen = false;
   }
 
   closeNotifications(): void {

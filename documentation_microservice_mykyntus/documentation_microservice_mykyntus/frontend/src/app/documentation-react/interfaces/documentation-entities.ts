@@ -9,6 +9,8 @@ export interface DocumentationDocument {
   employeeId?: string;
   /** UUID du PDF (GET …/generated-documents/{id}/file). */
   generatedDocumentId?: string;
+  /** Base de nom de fichier pour les exports (sans extension), ex. NomEmploye_Type_date. */
+  exportFileBase?: string;
 }
 
 export interface DocumentationRequest {
@@ -22,6 +24,8 @@ export interface DocumentationRequest {
   employeeName: string;
   employeeId?: string;
   reason?: string;
+  /** Commentaires complémentaires pilote (facultatif). */
+  complementaryComments?: string;
   rejectionReason?: string;
   /** Actions renvoyées par l’API selon le rôle (ex. approve, reject). */
   allowedActions: string[];

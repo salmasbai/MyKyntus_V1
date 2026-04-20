@@ -1,6 +1,33 @@
 import type { AuditLogDto, DocumentRequestDto, DocumentTypeDto } from '../../shared/models/api.models';
 import type { DocumentationDocument, DocumentationRequest, DocumentationTemplate } from '../interfaces/documentation-entities';
 
+/** Affichage : collaborateur — type de document — date (génération si dispo, sinon demande). */
+export function generatedDocumentDisplayLabel(r: {
+  employeeName: string;
+  type: string;
+  generatedAt?: string | null;
+  requestDate?: string | null;
+}): string {
+  const emp = (r.employeeName ?? '').trim() || 'Collaborateur';
+  const typ = (r.type ?? '').trim() || 'Document';
+  const raw = (r.generatedAt ?? r.requestDate ?? '').trim();
+  if (!raw) return `${emp} — ${typ}`;
+  const d = new Date(raw.length === 10 ? `${raw}T12:00:00` : raw);
+  if (Number.isNaN(d.getTime())) return `${emp} — ${typ} — ${raw.slice(0, 10)}`;
+  const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return `${emp} — ${typ} — ${dateStr}`;
+}
+
+/** Base de nom de fichier sûre (sans extension). */
+export function generatedDocumentExportBaseName(r: {
+  employeeName: string;
+  type: string;
+  generatedAt?: string | null;
+  requestDate?: string | null;
+}): string {
+  return generatedDocumentDisplayLabel(r).replace(/[/\\?%*:|"<>]/g, '-').replace(/\s*—\s*/g, '_').replace(/\s+/g, '_');
+}
+
 function normalizeRequestStatus(raw: string): DocumentationRequest['status'] {
   const key = raw.trim().toLowerCase();
   const map: Record<string, DocumentationRequest['status']> = {
@@ -27,6 +54,7 @@ export function mapDocumentRequestDto(d: DocumentRequestDto): DocumentationReque
     employeeName: d.employeeName,
     employeeId: d.employeeId ?? undefined,
     reason: d.reason ?? undefined,
+    complementaryComments: d.complementaryComments?.trim() || undefined,
     rejectionReason: d.rejectionReason ?? undefined,
     allowedActions: d.allowedActions ?? [],
     generatedDocumentId: d.generatedDocumentId?.trim() || undefined,
@@ -37,29 +65,38 @@ export function mapDocumentRequestDto(d: DocumentRequestDto): DocumentationReque
 
 export function mapRequestToGeneratedDocument(r: DocumentationRequest): DocumentationDocument | null {
   if (r.status !== 'Generated') return null;
+  const genAt = r.generatedAt?.trim();
+  const dateCreated = genAt || r.requestDate;
+  const base = { employeeName: r.employeeName, type: r.type, generatedAt: genAt, requestDate: r.requestDate };
   return {
     id: r.id,
-    name: `${r.type} (${r.id})`,
+    name: generatedDocumentDisplayLabel(base),
     type: r.type,
-    dateCreated: r.requestDate,
+    dateCreated,
     status: 'Generated',
     employeeName: r.employeeName,
     employeeId: r.employeeId,
+    generatedDocumentId: r.generatedDocumentId?.trim(),
+    exportFileBase: generatedDocumentExportBaseName(base),
   };
 }
 
 /** Liste « Mes documents » : toutes les demandes assignées à l’utilisateur (tous statuts). */
 export function mapAssignedRequestToDocument(r: DocumentationRequest): DocumentationDocument {
   const hasPdf = !!r.generatedDocumentId?.trim();
+  const genAt = r.generatedAt?.trim();
+  const dateCreated = hasPdf && genAt ? genAt : r.requestDate;
+  const base = { employeeName: r.employeeName, type: r.type, generatedAt: genAt, requestDate: r.requestDate };
   return {
     id: r.id,
-    name: `${r.type} (${r.id})`,
+    name: generatedDocumentDisplayLabel(base),
     type: r.type,
-    dateCreated: r.requestDate,
+    dateCreated,
     status: hasPdf ? 'Generated' : r.status,
     employeeName: r.employeeName,
     employeeId: r.employeeId,
     generatedDocumentId: r.generatedDocumentId?.trim(),
+    exportFileBase: hasPdf ? generatedDocumentExportBaseName(base) : undefined,
   };
 }
 

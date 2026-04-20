@@ -4,45 +4,52 @@
     } @else if (error) {
       <p class="text-red-400 text-sm">{{ error }}</p>
     }
-    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-      <div class="relative flex-1 max-w-md">
+    <div class="doc-page-header">
+      <div class="relative flex-1 max-w-md min-w-0">
         <app-doc-icon
           name="search"
-          klass="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+          klass="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
         ></app-doc-icon>
         <input
           type="text"
           [(ngModel)]="search"
-          placeholder="Filter by name or type..."
-          class="w-full bg-navy-900 border border-navy-800 rounded-lg py-2 pl-10 pr-4 text-sm text-slate-300 focus:outline-none focus:border-blue-500 transition-all"
+          placeholder="Rechercher par nom ou type…"
+          class="doc-field pl-10"
         />
       </div>
-      <div class="flex items-center gap-3">
-        <button
-          type="button"
-          class="flex items-center gap-2 px-4 py-2 bg-navy-900 border border-navy-800 rounded-lg text-sm text-slate-300 hover:bg-navy-800 transition-all"
-        >
-          <app-doc-icon name="filter" klass="w-4 h-4"></app-doc-icon>
-          Filter
+      <div class="flex flex-wrap items-center justify-end gap-3 shrink-0">
+        <button type="button" class="btn-secondary">
+          <app-doc-icon name="filter" klass="w-4 h-4 shrink-0"></app-doc-icon>
+          Filtrer
         </button>
-        <button
-          type="button"
-          class="flex items-center gap-2 px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-500 transition-all"
-        >
-          <app-doc-icon name="download" klass="w-4 h-4"></app-doc-icon>
-          Download All
-        </button>
+        <details #bulkDownloadDetails class="doc-download-details shrink-0">
+          <summary class="btn-primary list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+            <app-doc-icon name="download" klass="w-4 h-4 shrink-0"></app-doc-icon>
+            Télécharger tout
+            <span class="opacity-90 text-xs" aria-hidden="true">▾</span>
+          </summary>
+          <div
+            class="doc-download-dropdown absolute right-0 mt-2 py-1 z-[70]"
+            role="menu"
+            (click)="$event.stopPropagation()"
+          >
+            <p class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">Télécharger en</p>
+            <button type="button" role="menuitem" (click)="downloadAllFiltered('pdf')">PDF (.pdf)</button>
+            <button type="button" role="menuitem" (click)="downloadAllFiltered('docx')">DOCX (.docx)</button>
+          </div>
+        </details>
       </div>
     </div>
 
-    <div class="card-navy overflow-hidden">
-      <table class="w-full text-left border-collapse">
+    <div class="card-navy">
+      <div class="overflow-x-auto">
+      <table class="w-full text-left border-collapse min-w-[640px]">
         <thead>
           <tr class="bg-navy-800/50 border-b border-navy-800">
-            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Document Name</th>
+            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Document</th>
             <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Type</th>
-            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date Created</th>
-            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Status</th>
+            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Date de création</th>
+            <th class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Statut</th>
             <th
               class="px-6 py-4 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[11rem] whitespace-nowrap"
             >
@@ -69,18 +76,20 @@
                   </div>
                   <div>
                     <p class="text-sm font-semibold text-slate-200">{{ doc.name }}</p>
-                    <p class="text-xs text-slate-500">—</p>
+                    <p class="text-xs text-slate-500 font-mono">{{ doc.id }}</p>
                   </div>
                 </div>
               </td>
               <td class="px-6 py-4">
                 <span class="text-sm text-slate-400">{{ doc.type }}</span>
               </td>
-              <td class="px-6 py-4 text-sm text-slate-400">{{ doc.dateCreated }}</td>
+              <td class="px-6 py-4 text-sm text-slate-400">
+                {{ doc.dateCreated | date: 'dd/MM/yyyy HH:mm' }}
+              </td>
               <td class="px-6 py-4">
                 <app-status-badge [status]="doc.status"></app-status-badge>
               </td>
-              <td class="px-6 py-4 text-right min-w-[11rem] whitespace-nowrap">
+              <td class="relative overflow-visible px-6 py-4 text-right min-w-[11rem] whitespace-nowrap">
                 <div class="flex flex-nowrap items-center justify-end gap-2">
                   @if (canOpenOrDownload(doc)) {
                     <button
@@ -93,6 +102,7 @@
                     </button>
                     <app-generated-document-format-menu
                       [generatedDocumentId]="doc.generatedDocumentId ?? null"
+                      [fileNameBase]="doc.exportFileBase ?? null"
                       appearance="standard"
                     />
                   } @else {
@@ -104,6 +114,7 @@
           }
         </tbody>
       </table>
+      </div>
     </div>
 
     <app-generated-document-preview-modal
@@ -111,6 +122,7 @@
       [title]="previewTitle"
       [subtitle]="previewSubtitle"
       [generatedDocumentId]="previewGeneratedId"
+      [exportFileNameBase]="previewExportFileNameBase"
       (closed)="closePreview()"
     />
   </div>
